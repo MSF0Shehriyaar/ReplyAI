@@ -1,4 +1,4 @@
-﻿const env: any = (globalThis as any).__CLOUDFLARE_ENV__ || (typeof process !== "undefined" ? process.env : {}) || {};
+const env: any = (globalThis as any).__CLOUDFLARE_ENV__ || (typeof process !== "undefined" ? process.env : {}) || {};
 import { drizzle } from "drizzle-orm/d1";
 import * as schema from "./schema";
 

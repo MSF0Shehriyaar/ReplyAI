@@ -1,4 +1,4 @@
-﻿import {providerLimited,providerRetryAt} from './provider-limits';
+import {providerLimited,providerRetryAt} from './provider-limits';
 import {limitMetadata,type LimitSnapshot} from './limit-metadata';
 import { automationWindow } from './automation-window';
 import { replyLengthInstruction, languageReference, needsRomanization, needsReplyRewrite, isRomanHindi, repeatedReply, varyEmoji, profileAge, isProfileQuestion, enforceRespectfulFemaleGrammar, buildSystemPrompt } from './reply-style';
