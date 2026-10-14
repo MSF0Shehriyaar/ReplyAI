@@ -1,0 +1,2 @@
+import { requireWorkspaceRequest,errorResponse,allThreads,settings,db } from '@/lib/server';
+export async function GET(){try{await requireWorkspaceRequest();const [threads,s,logs]=await Promise.all([allThreads(),settings(),db().prepare('SELECT * FROM activity WHERE demo=0 ORDER BY created DESC LIMIT 100').all()]);return Response.json({exportedAt:new Date().toISOString(),settings:s,threads,activity:logs.results},{headers:{'Content-Disposition':'attachment; filename="nina-workspace.json"','Cache-Control':'no-store'}});}catch(e){return errorResponse(e);}}

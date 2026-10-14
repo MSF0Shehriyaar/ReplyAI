@@ -1,0 +1,4 @@
+import {requireWorkspaceRequest,errorResponse,settings,instagramAccounts,selectedProvider,cleanupHistory,routingStatus} from '@/lib/server';
+import {automationWindow} from '@/lib/automation-window';
+import {queueStatus} from '@/lib/queue';
+export async function GET(){try{requireWorkspaceRequest();await cleanupHistory();const [s,accounts,provider,queue]=await Promise.all([settings(),instagramAccounts(),selectedProvider(),queueStatus()]);return Response.json({enabled:s.enabled,providerRouting:await routingStatus(),automationWindow:automationWindow(s),replyDelaySeconds:s.replyDelaySeconds||0,approval:s.approval,dm:s.dm,comments:s.comments,dailyLimit:s.dailyLimit,accounts:accounts.map(a=>({id:a.id,username:a.username,verified:a.verified,enabled:a.enabled,lastEvent:a.lastEvent})),providerReady:!!provider?.verified,queue,metaAccess:'not_verified'},{headers:{'Cache-Control':'no-store'}});}catch(e){return errorResponse(e);}}

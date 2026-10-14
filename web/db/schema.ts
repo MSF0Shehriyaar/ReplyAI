@@ -1,0 +1,7 @@
+import { integer, text, sqliteTable, index } from 'drizzle-orm/sqlite-core';
+export const state=sqliteTable('workspace_state',{key:text('key').primaryKey(),payload:text('payload').notNull()});
+export const secrets=sqliteTable('encrypted_secrets',{key:text('key').primaryKey(),cipher:text('cipher').notNull()});
+export const threads=sqliteTable('threads',{id:text('id').primaryKey(),demo:integer('demo').notNull().default(0),payload:text('payload').notNull(),version:integer('version').notNull().default(1),updated:integer('updated').notNull()},t=>[index('idx_threads_demo_updated').on(t.demo,t.updated)]);
+export const logs=sqliteTable('activity',{id:text('id').primaryKey(),kind:text('kind').notNull(),message:text('message').notNull(),created:integer('created').notNull(),demo:integer('demo').notNull().default(0)},t=>[index('idx_activity_created').on(t.created)]);
+export const jobs=sqliteTable('jobs',{id:text('id').primaryKey(),threadId:text('thread_id').notNull(),payload:text('payload').notNull(),status:text('status').notNull().default('pending'),attempts:integer('attempts').notNull().default(0),created:integer('created').notNull()},t=>[index('idx_jobs_status_created').on(t.status,t.created)]);
+export const usage=sqliteTable('usage',{day:text('day').primaryKey(),calls:integer('calls').notNull().default(0),tokens:integer('tokens').notNull().default(0),sent:integer('sent').notNull().default(0)});
