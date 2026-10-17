@@ -38,7 +38,29 @@ export async function requireWorkspaceRequest(request?:Request){
   if(request&&request.method!=='GET'){
     if(request.headers.get('x-nina-client')!=='1')throw new AppError('Invalid request.',403);
     const origin=request.headers.get('origin');
-    if(origin&&origin!==new URL(request.url).origin)throw new AppError('Invalid request origin.',403);
+    if(origin){
+      let isValidOrigin = false;
+      try {
+        const originUrl = new URL(origin);
+        const originHost = originUrl.host;
+        const reqOrigin = new URL(request.url).origin;
+        const fwdHost = request.headers.get('x-forwarded-host') || request.headers.get('host');
+        
+        if (
+          origin === reqOrigin ||
+          (fwdHost && (originHost === fwdHost || origin === `https://${fwdHost}` || origin === `http://${fwdHost}`)) ||
+          originHost.endsWith('ninakurainservices.in') ||
+          originHost.endsWith('onrender.com') ||
+          originHost === 'localhost' ||
+          originHost.startsWith('localhost:')
+        ) {
+          isValidOrigin = true;
+        }
+      } catch {
+        isValidOrigin = false;
+      }
+      if(!isValidOrigin) throw new AppError('Invalid request origin.',403);
+    }
   }
   // Enforce owner session verification for sensitive workspace requests
   if(request){
