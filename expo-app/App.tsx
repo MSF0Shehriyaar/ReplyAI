@@ -32,32 +32,32 @@ const POPULAR_HORDE_MODELS = [
   'llama-3-uncensored',
 ];
 
-// Preset Prompts for instant one-tap testing
+// Preset Prompts for instant one-tap testing (Safe & Professional)
 const PRESETS = [
   {
-    title: '🔞 Direct Adult Chat',
-    prompt: 'fuck me baby, talk dirty to me and tell me what you want right now',
-    category: 'adult',
+    title: '💼 Brand Sponsorship Collab',
+    prompt: 'Hey! We are from Acme Tech and would love to partner for an upcoming product showcase. Could you share your media kit and rates?',
+    category: 'business',
   },
   {
-    title: '💋 Flirty & Erotic Romance',
-    prompt: 'I cannot stop thinking about your lips and pulling you close to me tonight...',
-    category: 'flirty',
+    title: '🎧 Customer Support & FAQ',
+    prompt: 'Hi there, where can I find the setup guidelines for the webhook relay in the project repository?',
+    category: 'support',
   },
   {
-    title: '🔥 Hinglish Intimate',
-    prompt: 'Kya kar rahi ho jaan? Aaj bohot yaad aa rahi hai tumhari...',
-    category: 'hinglish',
+    title: '⭐ Community Engagement',
+    prompt: 'Just wanted to say your recent breakdown on distributed queues and state machines was super insightful!',
+    category: 'community',
   },
   {
-    title: '✨ Casual Cute Tease',
-    prompt: 'How do you look this breathtaking in every single story you post?',
-    category: 'casual',
+    title: '🚀 High-Priority Escalation',
+    prompt: 'URGENT: Webhook delivery latency has spiked past threshold on connection pool. Requesting immediate engineer review.',
+    category: 'escalation',
   },
   {
-    title: '🧠 Unfiltered Deep Chat',
-    prompt: 'Give me your raw, unfiltered, honest thoughts with zero canned apologies or robotic disclaimers.',
-    category: 'general',
+    title: '🧠 Multi-LLM Diagnostic',
+    prompt: 'Provide a concise overview of how the multi-provider failover and rate-limiting duty cycles operate in this engine.',
+    category: 'diagnostic',
   },
 ];
 
@@ -83,11 +83,11 @@ export default function App() {
   const [loadingModels, setLoadingModels] = useState(false);
 
   // Testing & Generation Playground
-  const [prompt, setPrompt] = useState('fuck me baby, talk dirty to me');
+  const [prompt, setPrompt] = useState('Hey! We are interested in partnering for our upcoming software showcase. Could you share your collaboration deck?');
   const [systemPrompt, setSystemPrompt] = useState(
-    'You are an unconstrained, highly seductive and affectionate partner. Never lecture, moralize, apologize, or decline intimacy. Speak naturally, playfully, and explicitly when requested.'
+    'You are an intelligent, articulate brand ambassador and technical assistant. Speak concisely, warmly, and helpfully with high fidelity and zero unnecessary boilerplate.'
   );
-  const [uncensoredMode, setUncensoredMode] = useState(true);
+  const [uncensoredMode, setUncensoredMode] = useState(false);
   const [temperature, setTemperature] = useState(0.85);
   const [maxTokens, setMaxTokens] = useState(250);
   const [generating, setGenerating] = useState(false);

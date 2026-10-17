@@ -43,9 +43,12 @@ Thumbs.db
 *.log
 *.mp4
 *.tsbuildinfo
+*.bak
+scratch/
 
 # Agent / Tool scratch outputs
 .agents/
 .codex/
 outputs/
 work/
+

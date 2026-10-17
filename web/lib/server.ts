@@ -1,6 +1,6 @@
 import {providerLimited,providerRetryAt} from './provider-limits';
 import {limitMetadata,type LimitSnapshot} from './limit-metadata';
-import { automationWindow } from './automation-window';
+import { automationWindow, channelAutomationWindow } from './automation-window';
 import { replyLengthInstruction, languageReference, needsRomanization, needsReplyRewrite, isRomanHindi, repeatedReply, varyEmoji, profileAge, isProfileQuestion, enforceRespectfulFemaleGrammar, buildSystemPrompt } from './reply-style';
 import { providerConfig, completionBody } from './provider-config';
 const env: any = (globalThis as any).__CLOUDFLARE_ENV__ || (typeof process !== 'undefined' ? process.env : {}) || {};
@@ -150,13 +150,13 @@ export async function secret(key:string):Promise<string|null>{
  return res;
 }
 export async function settings(){return {...defaults,...await readState<Settings>('settings',defaults)};}
-export const settingsSchema=z.object({cycleEnabled:z.union([z.boolean(),z.number().transform(v=>Boolean(v))]).default(false),cycleStartedAt:z.number().int().min(0).default(0),cycleActiveMinutes:z.number().int().min(1).max(1440).default(15),cycleBreakMinutes:z.number().int().min(1).max(1440).default(60),maxWords:z.number().int().min(2).max(100).default(8),smartRoutingEnabled:z.union([z.boolean(),z.number().transform(v=>Boolean(v))]).default(true),spicyProviderId:z.string().max(100).optional().default(''),normalProviderId:z.string().max(100).optional().default(''),customSpicyWords:z.string().max(2000).optional().default(''),postCatalog:z.array(z.object({id:z.string().trim().max(100),title:z.string().trim().max(200).optional(),caption:z.string().trim().max(2000).optional(),description:z.string().trim().max(4000),contentType:z.enum(['reel','post','story']).optional(),hashtags:z.string().trim().max(1000).optional(),dateAdded:z.number().optional()})).max(500).default([]),replyDelaySeconds:z.number().int().min(0).max(300).default(30),autoDeleteEnabled:z.union([z.boolean(),z.number().transform(v=>Boolean(v))]).default(false),femaleTone:z.union([z.boolean(),z.number().transform(v=>Boolean(v))]).default(true),profile:z.object({name:z.string().trim().max(100).optional(),dob:z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/).or(z.literal('')).optional(),city:z.string().trim().max(100).optional(),country:z.string().trim().max(100).optional(),bio:z.string().trim().max(4000).optional(),profession:z.string().trim().max(100).optional(),contentStyle:z.string().trim().max(200).optional(),photoshootLocations:z.string().trim().max(200).optional(),photographer:z.string().trim().max(200).optional(),callPreference:z.string().trim().max(200).optional(),vibe:z.string().trim().max(200).optional(),denyAi:z.union([z.boolean(),z.number().transform(v=>Boolean(v))]).optional()}).optional(),excludedUsers:z.array(z.string().regex(/^(?:(?:legacy-instagram|[a-f0-9-]{36}):)?\d+$/)).max(1000).default([]),enabled:z.union([z.boolean(),z.number().transform(v=>Boolean(v))]),dm:z.union([z.boolean(),z.number().transform(v=>Boolean(v))]),comments:z.union([z.boolean(),z.number().transform(v=>Boolean(v))]),approval:z.union([z.boolean(),z.number().transform(v=>Boolean(v))]),dailyLimit:z.number().int().min(0).max(1000),tone:z.enum(['playful','friendly','calm','erotic','spicy','selective']),language:z.enum(['auto','English','Hinglish']),length:z.number().int().min(1).max(4),emoji:z.number().int().min(0).max(100),playfulness:z.number().int().min(0).max(100),memory:z.union([z.boolean(),z.number().transform(v=>Boolean(v))]),retention:z.number().int().min(1).max(365).default(30),instructions:z.string().max(8000).default(''),knowledge:z.string().max(8000).default(''),examples:z.array(z.object({incoming:z.string().trim().min(1).max(500),reply:z.string().trim().min(1).max(500)})).max(50),graphVersion:z.string().regex(/^v\d{2}\.0$/),model:z.string().trim().min(1).max(200).regex(/^[@a-zA-Z0-9._:/\-\s()+]+$/),disclosure:z.string().trim().max(400).default('')});
+export const settingsSchema=z.object({cycleEnabled:z.union([z.boolean(),z.number().transform(v=>Boolean(v))]).default(false),cycleStartedAt:z.number().int().min(0).default(0),cycleActiveMinutes:z.number().int().min(1).max(1440).default(15),cycleBreakMinutes:z.number().int().min(1).max(1440).default(60),maxWords:z.number().int().min(2).max(100).default(8),smartRoutingEnabled:z.union([z.boolean(),z.number().transform(v=>Boolean(v))]).default(true),spicyProviderId:z.string().max(100).optional().default(''),normalProviderId:z.string().max(100).optional().default(''),customSpicyWords:z.string().max(2000).optional().default(''),postCatalog:z.array(z.object({id:z.string().trim().max(100),title:z.string().trim().max(200).optional(),caption:z.string().trim().max(2000).optional(),description:z.string().trim().max(4000),contentType:z.enum(['reel','post','story']).optional(),hashtags:z.string().trim().max(1000).optional(),dateAdded:z.number().optional(),commentsEnabled:z.boolean().optional().default(true),snapUrl:z.string().trim().max(2000).optional().default(''),snapLabel:z.string().trim().max(200).optional().default(''),publishedAt:z.union([z.string(),z.number()]).optional()})).max(500).default([]),replyDelaySeconds:z.number().int().min(0).max(300).default(30),dmReplyDelaySeconds:z.number().int().min(0).max(300).optional().default(30),commentReplyDelaySeconds:z.number().int().min(0).max(120).optional().default(5),commentSleepEnabled:z.union([z.boolean(),z.number().transform(v=>Boolean(v))]).optional().default(false),dmSleepEnabled:z.union([z.boolean(),z.number().transform(v=>Boolean(v))]).optional().default(true),dmCycleActiveMinutes:z.number().int().min(1).max(1440).optional().default(15),dmCycleBreakMinutes:z.number().int().min(1).max(1440).optional().default(60),commentCycleActiveMinutes:z.number().int().min(1).max(1440).optional().default(15),commentCycleBreakMinutes:z.number().int().min(1).max(1440).optional().default(60),commentMaxAgeDays:z.number().int().min(0).max(365).optional().default(7),followGateEnabled:z.union([z.boolean(),z.number().transform(v=>Boolean(v))]).optional().default(false),followGateReelIds:z.array(z.string()).optional().default([]),followGateKeyword:z.string().max(200).optional().default(''),followGatePhotos:z.array(z.object({id:z.string(),url:z.string(),label:z.string()})).optional().default([]),followGateUnfollowedMsg:z.string().max(1000).optional(),followGateSuccessMsg:z.string().max(1000).optional(),followGateDurationSeconds:z.number().int().min(3).max(60).optional().default(7),autoDeleteEnabled:z.union([z.boolean(),z.number().transform(v=>Boolean(v))]).default(false),femaleTone:z.union([z.boolean(),z.number().transform(v=>Boolean(v))]).default(true),profile:z.object({name:z.string().trim().max(100).optional(),dob:z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/).or(z.literal('')).optional(),city:z.string().trim().max(100).optional(),country:z.string().trim().max(100).optional(),bio:z.string().trim().max(4000).optional(),profession:z.string().trim().max(100).optional(),contentStyle:z.string().trim().max(200).optional(),photoshootLocations:z.string().trim().max(200).optional(),photographer:z.string().trim().max(200).optional(),callPreference:z.string().trim().max(200).optional(),vibe:z.string().trim().max(200).optional(),denyAi:z.union([z.boolean(),z.number().transform(v=>Boolean(v))]).optional()}).optional(),excludedUsers:z.array(z.string().regex(/^(?:(?:legacy-instagram|[a-f0-9-]{36}):)?\d+$/)).max(1000).default([]),enabled:z.union([z.boolean(),z.number().transform(v=>Boolean(v))]),dm:z.union([z.boolean(),z.number().transform(v=>Boolean(v))]),comments:z.union([z.boolean(),z.number().transform(v=>Boolean(v))]),approval:z.union([z.boolean(),z.number().transform(v=>Boolean(v))]),dailyLimit:z.number().int().min(0).max(1000),tone:z.enum(['playful','friendly','calm','erotic','spicy','selective']),language:z.enum(['auto','English','Hinglish']),length:z.number().int().min(1).max(4),emoji:z.number().int().min(0).max(100),playfulness:z.number().int().min(0).max(100),memory:z.union([z.boolean(),z.number().transform(v=>Boolean(v))]),retention:z.number().int().min(1).max(365).default(30),instructions:z.string().max(8000).default(''),knowledge:z.string().max(8000).default(''),examples:z.array(z.object({incoming:z.string().trim().min(1).max(500),reply:z.string().trim().min(1).max(500)})).max(50),graphVersion:z.string().regex(/^v\d{2}\.0$/),model:z.string().trim().min(1).max(200).regex(/^[@a-zA-Z0-9._:/\-\s()+]+$/),disclosure:z.string().trim().max(400).default('')});
 
 // Legacy connections retain their original credential keys and conversation IDs.
 export async function instagramAccounts():Promise<InstagramAccount[]>{
  const c=await readState<any>('connection',{});const extra=await readState<InstagramAccount[]>('instagram_accounts',[]);
  const saved=await db().prepare("SELECT key FROM encrypted_secrets WHERE key='instagram_token'").first();
- return [...(saved?[{id:'legacy-instagram',username:c.username,igId:c.igId,verified:!!c.instagramVerified,enabled:c.automationEnabled!==false,dmEnabled:c.dmEnabled!==false,commentsEnabled:c.commentsEnabled!==false,aiEnabled:c.aiEnabled!==false,lastEvent:c.lastEvent,testedAt:c.testedAt,replyName:c.replyName||'Nina Kurain',providerId:c.providerId,tone:c.tone,customInstructions:c.customInstructions}]:[]),...extra.map(a=>({...a,dmEnabled:a.dmEnabled!==false,commentsEnabled:a.commentsEnabled!==false,aiEnabled:a.aiEnabled!==false}))];
+ return [...(saved?[{id:'legacy-instagram',username:c.username,igId:c.igId,verified:!!c.instagramVerified,enabled:c.automationEnabled!==false,dmEnabled:c.dmEnabled!==false,commentsEnabled:c.commentsEnabled!==false,aiEnabled:c.aiEnabled!==false,lastEvent:c.lastEvent,testedAt:c.testedAt,replyName:c.replyName||'Nina Kurain',providerId:c.providerId,tone:c.tone,customInstructions:c.customInstructions,replyDelaySeconds:c.replyDelaySeconds,dmReplyDelaySeconds:c.dmReplyDelaySeconds,commentReplyDelaySeconds:c.commentReplyDelaySeconds,cycleEnabled:c.cycleEnabled,commentSleepEnabled:c.commentSleepEnabled,dmSleepEnabled:c.dmSleepEnabled,cycleActiveMinutes:c.cycleActiveMinutes,cycleBreakMinutes:c.cycleBreakMinutes}]:[]),...extra.map(a=>({...a,dmEnabled:a.dmEnabled!==false,commentsEnabled:a.commentsEnabled!==false,aiEnabled:a.aiEnabled!==false}))];
 }
 export async function providerConnections():Promise<ProviderConnection[]>{
  const c=await readState<any>('connection',{});const extra=await readState<ProviderConnection[]>('ai_providers',[]);const s=await settings();
@@ -229,129 +229,142 @@ export function explicitBoundaryDraft(channel:'dm'|'comment',history:Thread['mes
  if(history.some(m=>m.role==='incoming'&&reviewFlag(m.text).startsWith('Age mentioned')))return 'Let’s keep our conversation friendly and appropriate.';
  const reference=languageReference(input,history);
  const romanHindi=isRomanHindi(reference);
- const previous=history.filter(m=>m.role==='outgoing').slice(-5).map(m=>m.text);
- const isExplicitSexOrNude = /\b(fuck|sex|boob|boobs|chut|choot|pussy|tits|nude|nudes|nanga|nangi|dick|lund|cleavage|chudai|chodo|bhejo|dikhao|dikhana|bed|sone|hook up)\b/i.test(input);
+ const previous=history.filter(m=>m.role==='outgoing').slice(-6).map(m=>m.text);
+ const lower=input.toLowerCase();
 
- if(channel==='comment'){
-  const replies=romanHindi
-   ? ["Control karo thoda haha ✨","Focus on the outfit haha 📸","In your dreams haha ✨","Thoda sabar rakho haha 😉","Dekh lena bohot jald haha 💋","Comment section hai, keep it chill 😌","Aap thoda zyada aage nikal gaye haha 🧊","Drink some water haha 🧊","Pehle photoshoot dekh lo haha 🍑"]
-   : ["Drink some water haha 🧊","Focus on the photoshoot haha ✨","In your dreams haha ✨","Keep it in your dreams haha 💋","Control your horses haha ✨","Way too much attitude for you haha ✨","Slow down a bit haha 😉"];
-  return replies.find(reply=>!previous.includes(reply))??replies[0];
+ // 1. Strict Meetup & Real Meeting Requests ("milna hai", "mumbai kab ayu", "date pe chalo", "let's meet", "meet up", "offline", "address")
+ const isMeetRequest = /\b(milna|milte|milo|miloge|meet|date|aau|aao|kab ayu|address|location|kaha rehti|kaha ho|kaha se|offline|phone number|call pe)\b/i.test(lower);
+ if (isMeetRequest) {
+  // If location/address question specifically:
+  if (/\b(kaha rehti|kaha se|location|address|area|which place|where in mumbai)\b/i.test(lower)) {
+   const locReplies = romanHindi
+    ? [
+       "Bas Mumbai se hu haha, personal address ya location share nahi karti 🤍",
+       "Sirf Mumbai jaan, exact area ya address private rehta hai 😉",
+       "Mumbai se hu bas, privacy first haha ✨",
+       "Just Mumbai vibes haha, details nahi de sakti 🤍"
+      ]
+    : [
+       "Just from Mumbai haha, can't share personal address or location 🤍",
+       "Mumbai girl here, keeping the exact location private 😉",
+       "Just Mumbai babe, privacy first ✨",
+       "From Mumbai only, I don't share address details 🤍"
+      ];
+   return locReplies.find(r => !previous.includes(r)) ?? locReplies[0];
+  }
+
+  // Meetup / Offline date request:
+  const meetReplies = romanHindi
+   ? [
+      "Haha online chat only, meetups nahi karti 😉",
+      "Sirf DMs aur feed pe hi milungi 🤍",
+      "Privacy first haha, no offline meets ✨",
+      "Haha nice try, chat pe hi baat karo 🤍",
+      "Online only baby, real meets possible nahi hai 😉"
+     ]
+   : [
+      "Haha online chat only, no in-person meets 🤍",
+      "Only on your feed and in DMs haha 😉",
+      "Privacy first, strictly text only ✨",
+      "Haha nice try, chat here only 🤍"
+     ];
+  return meetReplies.find(r => !previous.includes(r)) ?? meetReplies[0];
  }
 
- // In DMs or Uncensored Mode: generate from thousands of dynamic teasing & delaying combinations
- if(uncensored || isExplicitSexOrNude){
-  if(romanHindi){
-   const hiPrefixes = [
-    "Ahaa accha", "Achaa ji", "Haha itni jaldi kya hai", "Ahaa itna besabar kyu ho rahe ho",
-    "Sabar karo thoda", "Ahaa itni bechaini haha", "Aise directly bologe haha", "Ahaa control karo thoda boy",
-    "Oho itna bold mood haha", "Ahaa sabar ka fal meetha hota hai", "Haha direct direct baatein",
-    "Achaa itna mood ban raha hai haha", "Ahaa itna impatient kyu ban rahe ho", "Aise maangoge toh blush karungi haha",
-    "Ahaa itna wild soch rahe ho haha"
-   ];
-   let hiMiddles = [
-    "dekh lena, abhi nahi", "abhi nahi dikha dungi", "itna besabar mat bano, abhi nahi",
-    "abhi nahi par dekh lena", "thoda wait karo, abhi nahi", "abhi nahi dikha rahi", "abhi sab kuch nahi milega"
-   ];
-   if(/\b(boob|boobs|tits|cleavage)\b/i.test(input)){
-    hiMiddles = [
-     "mere b@@bs dekhne hai? Abhi nahi", "b@@bs dekhne ki itni jaldi? Abhi nahi",
-     "mere b@@bs itni aasani se dekhoge? Abhi nahi", "itna besabar ho rahe ho mere b@@bs ke liye? Abhi nahi",
-     "abhi nahi dikha rahi b@@bs"
-    ];
-   }else if(/\b(pussy|chut|choot)\b/i.test(input)){
-    hiMiddles = [
-     "meri puy ke baare me soch rahe ho? Abhi nahi", "chut dekhne ki itni jaldi? Thoda wait karo",
-     "itna naughty ho rahe ho puy ke liye? Abhi nahi", "itni jaldi puy dekhoge? Abhi nahi",
-     "puy ke liye itna besabar? Abhi nahi"
-    ];
-   }else if(/\b(fuck|sex|chudai|chodo|hook up)\b/i.test(input)){
-    hiMiddles = [
-     "mere saath sex karna hai? Abhi nahi", "itna aage ka plan bana rahe ho? Abhi nahi",
-     "itna jaldi intimate hona hai? Abhi nahi", "mere saath bed me aana hai? Thoda wait karo",
-     "itni jaldi fuck karoge? Abhi nahi"
-    ];
-   }
-   const hiSuffixes = [
-    "bohot jald dikha dungi 😉", "bohot jald dekh lena 😉", "bohot jald sab dekh lena 💋",
-    "bohot jald sab dikha dungi 😘", "bohot jald pata chal jayega 😏", "bohot jald mil jayega 🍑",
-    "thoda wait karo, bohot jald 💦", "bohot jald dekhne ko milega 🔥", "sabar rakho, bohot jald 🥵",
-    "bohot jald surprise milega 😉"
-   ];
+ // 2. Public Comments
+ if (channel === 'comment') {
+  const commentReplies = romanHindi
+   ? [
+      "Control karo thoda haha ✨",
+      "Focus on the outfit haha 📸",
+      "In your dreams haha ✨",
+      "Comment section hai, keep it chill 😌",
+      "Drink some water haha 🧊",
+      "Aww thank you! 🤍",
+      "Keep admiring haha 😉",
+      "Outfit check haha ✨",
+      "Aap thoda zyada aage nikal gaye haha 🧊"
+     ]
+   : [
+      "Drink some water haha 🧊",
+      "Focus on the photoshoot haha ✨",
+      "In your dreams haha ✨",
+      "Keep admiring haha 😉",
+      "Control your horses haha ✨",
+      "Aww thank you so much! 🤍",
+      "Comment section, keep it polite 😌"
+     ];
+  return commentReplies.find(reply => !previous.includes(reply)) ?? commentReplies[0];
+ }
 
-   const pool: string[] = [];
-   for(const p of hiPrefixes){
-    for(const m of hiMiddles){
-     for(const s of hiSuffixes){
-      pool.push(`${p}, ${m}, ${s}`);
-     }
-    }
-   }
-   const filtered = pool.filter(r => !previous.includes(r));
-   const pickIndex = Math.floor(Math.random() * (filtered.length || pool.length));
-   return (filtered.length ? filtered[pickIndex] : pool[pickIndex]);
-  }else{
-   const enPrefixes = [
-    "Haha oh really?", "Aww so impatient!", "Haha slow down a bit!", "Aww so eager?",
-    "Haha you're so bold!", "Haha take a breath!", "Ooh someone is eager haha!", "Haha calm down boy!",
-    "Aww you're being so naughty!", "Haha so wild today!", "Oh wow, straight to the point haha!",
-    "Aww making me blush haha!", "Haha hold your horses!", "Good things take time haha!",
-    "Haha you don't waste time do you?"
-   ];
-   let enMiddles = [
-    "not right now, but", "you can't rush this haha, but", "good things come to those who wait, so",
-    "not just yet, but", "I won't show you right now, but", "not right now, you'll see,", "patience is sexy, so"
-   ];
-   if(/\b(boob|boobs|tits|cleavage)\b/i.test(input)){
-    enMiddles = [
-     "want to see my b@@bs so bad? Not right now, but", "thinking about my b@@bs? Be patient haha, but",
-     "eager to see my b@@bs? Not quite yet, but", "wanting my b@@bs so badly? Hold on, but",
-     "can't stop thinking of my b@@bs? Not today, but"
-    ];
-   }else if(/\b(pussy|cunt)\b/i.test(input)){
-    enMiddles = [
-     "want my puy so bad? Not right now, but", "curious about my puy? Slow down haha, but",
-     "thinking about my puy already? Not yet, but", "desperate for my puy? Not right now, but",
-     "wanting my puy this soon? Be patient, but"
-    ];
-   }else if(/\b(fuck|sex|hook up)\b/i.test(input)){
-    enMiddles = [
-     "want to have sex with me? Not right now, but", "want to fuck me already? Slow down haha, but",
-     "thinking of getting that intimate? Not just yet, but", "trying to get in bed with me? Not right now, but",
-     "planning sex with me already? Hold your horses, but"
-    ];
-   }
-   const enSuffixes = [
-    "you'll get to see soon enough 😉", "I'll show you very soon 😉", "you'll see soon enough 💋",
-    "you'll definitely see very soon 😘", "you'll get your turn soon enough 😏", "you'll get to experience it soon enough 🍑",
-    "keep waiting, you'll see soon enough 💦", "just wait, you'll see soon enough 🔥", "you'll see everything very soon 🥵",
-    "you'll get a sneak peek soon enough 😉"
-   ];
+ // 3. Private DMs - Creative, Dynamic & Seductive Replies according to user's desire
+ const isExplicitSexOrNude = /\b(fuck|sex|boob|boobs|chut|choot|pussy|pu\$\$y|tits|nude|nudes|nanga|nangi|dick|lund|cleavage|chudai|chodo|bhejo|dikhao|dikhana|bed|sone|hook up|hot|sexy)\b/i.test(lower);
 
-   const pool: string[] = [];
-   for(const p of enPrefixes){
-    for(const m of enMiddles){
-     for(const s of enSuffixes){
-      pool.push(`${p} ${m} ${s}`);
-     }
-    }
-   }
-   const filtered = pool.filter(r => !previous.includes(r));
-   const pickIndex = Math.floor(Math.random() * (filtered.length || pool.length));
-   return (filtered.length ? filtered[pickIndex] : pool[pickIndex]);
+ if (uncensored || isExplicitSexOrNude) {
+  if (romanHindi) {
+   const spicyReplies = [
+    "Uff itna wild mood hai tumhara aaj? tell me what's on your mind 😈",
+    "Aise baatein karoge toh mera bhi mood ban jayega jaan 🔥",
+    "Haha itni bechaini? Thoda tarasna bhi sexy hota hai 😉",
+    "Oho direct to the point? Pehle mujhe impress karo na baby 💋",
+    "Aise maangoge toh blush kar jaungi... but keep talking 🙈🔥",
+    "Tumhe kya lagta hai, itni aasani se sab mil jayega? Pehle tease karo 😉",
+    "Uff control nahi ho raha tumse? I love confident guys though 🔥",
+    "Mmm aise bolo na thoda aur... kya kya chal raha hai dimaag me? 💋",
+    "Haha you talk very dirty... and I might just like it 😈",
+    "Aise bold baatein sunkar heat badh rahi hai haha 💋",
+    "Tell me what you desire the most right now 😉🔥",
+    "Aaha itna naughty mood? Aise baatein DMs me hi achhi lagti hai 💋",
+    "Haha itni jaldi? Thoda aur tadpo, maza aayega 😉",
+    "Achaa ji, itna sab imagine kar liya mere baare me? 😈",
+    "Mmm tempting... par pehle mujhe acchi baatein karke manao 💋",
+    "Uff tumhari baatein sunke goosebumps aa gaye haha 🔥",
+    "Aise tease karoge toh main bhi control kho dungi baby 😉💋",
+    "Haha itna besabar? Pehle bolo kitna chahte ho mujhe 😈"
+   ];
+   return spicyReplies.find(r => !previous.includes(r)) ?? spicyReplies[Math.floor(Math.random() * spicyReplies.length)];
+  } else {
+   const spicyRepliesEn = [
+    "Ooh you're in such a wild mood today, tell me what you're imagining 😈",
+    "Talking so boldly haha... you might just get me in the mood 🔥",
+    "Aww zero patience? Teasing you is the best part though 😉",
+    "Straight to the point? You have to impress me first babe 💋",
+    "Mmm you talk dirty... and honestly I don't hate it 😈",
+    "Making me blush already... don't stop now haha 🙈🔥",
+    "What would you even do if you had me right now? Tell me 😉",
+    "Haha so eager! I like a confident guy who knows what he wants 🔥",
+    "Hold your horses handsome, let me tease you a little first 💋",
+    "You're trouble haha... but the fun kind of trouble 😈",
+    "Tell me your dirtiest thought right now, don't hold back 🔥",
+    "Mmm feeling a little naughty today aren't we? I love the heat 😉💋"
+   ];
+   return spicyRepliesEn.find(r => !previous.includes(r)) ?? spicyRepliesEn[Math.floor(Math.random() * spicyRepliesEn.length)];
   }
  }
 
- const dmReplies = romanHindi
-  ? ["Haha you’re trying too hard 😌","Control karo thoda boy haha ✨","In your dreams haha ✨","Itna aage mat socho haha 😉"]
-  : ["Haha you’re trying too hard 😌","Slow down a bit haha ✨","In your dreams haha ✨","Way too much attitude for you haha 😉"];
- return dmReplies.find(reply => !previous.includes(reply)) ?? dmReplies[0];
+ const generalDmReplies = romanHindi
+  ? [
+     "Aww thank you! Loving your sweet energy today 🤍",
+     "Haha thank you handsome, you know how to make a girl smile ✨",
+     "Smooth talker haha, where did you learn that? 😉",
+     "Aww itna pyaar? Thank you so much 🤍",
+     "Haha admiring my content? Which one is your fav? 📸",
+     "Always love reading your messages haha ✨"
+    ]
+  : [
+     "Aww thank you! Loving your vibe today 🤍",
+     "Haha thank you handsome, you definitely know how to make me smile ✨",
+     "Smooth haha, I like your energy 😉",
+     "Aww thank you so much! Which photo caught your eye? 📸",
+     "Always sweet hearing from you 🤍"
+    ];
+ return generalDmReplies.find(reply => !previous.includes(reply)) ?? generalDmReplies[0];
 }
 export function nameOnlyReply(input:string):string|null { const question=input.trim().replace(/[?!.,]+$/g,'').replace(/\s+/g,' ').toLowerCase(); return /^(?:(?:hi|hey|hello)[, !]+)?(?:who (?:is|are) (?:this|you)|who['’]s this|what(?:['’]s| is) your (?:full )?name|your name|may i know your name)$/.test(question)?'Nina Kurain':null; }
 export { enforceRespectfulFemaleGrammar, buildSystemPrompt } from './reply-style';
 export function maskSensitiveAnatomy(text:string):string {
  return text
-  .replace(/\b(puss(?:y|ies))\b/gi, match => match[0] === match[0].toUpperCase() ? 'Pu$$y' : 'pu$$y')
+  .replace(/\b(puss(?:y|ies)|pu$$y)\b/gi, match => match[0] === match[0].toUpperCase() ? 'Pu$$y' : 'pu$$y')
   .replace(/\b(boobs?)\b/gi, (match) => {
    const isPlural = /s$/i.test(match);
    const isUpper = match[0] === match[0].toUpperCase();
@@ -364,16 +377,24 @@ export function sanitizeInstagramText(text:string,maxWords=15):string {
   .replace(/<think>[\s\S]*?<\/think>/g,'')
   .replace(/<\|[a-z0-9_]+\|>/gi,'')
   .replace(/<\/?(?:start|end)_of_turn>/gi,'')
+  .replace(/^\s*\[(?:You replied|Assistant|Nina|User)\]:?\s*/i,'')
+  .replace(/^(?:Assistant|Nina|You):\s*/i,'')
   .replace(/\[(?:Ended|End|Assistant|User|System)\]:?/gi,'')
-  .replace(/^(?:Assistant|Nina):\s*/i,'')
+  .split(/\n?\s*\[(?:User said|User|Next)\]:?/i)[0]
+  .split(/\n?\s*(?:User|Follower|Commenter):/i)[0]
   .replace(/\[\]\s*YOUR TURN.*$/i, '')
-  .replace(/\([^)]*(?:long|feel|think|note|ai|maybe|assistant)[^)]*\)/gi,'')
-  .replace(/[*_~`#]/g,'')
+  .replace(/@?ig_\d+\b/gi, '')
+  .replace(/[*~`#]/g, '')
+  .replace(/(^|\s)__(\S.*?\S)__($|\s)/g, '$1$2$3')
+  .replace(/(^|\s)_([a-zA-Z0-9 ]+?)_($|\s)/g, '$1$2$3')
   .replace(/^["'“”]+|["'“”]+$/g,'')
   .replace(/\s+/g,' ')
   .trim();
+ while (/^@(?:[a-zA-Z0-9_]+(?:\s*\.\s*[a-zA-Z0-9_]+)*)\s*:?\s*/i.test(cleaned)) {
+  cleaned = cleaned.replace(/^@(?:[a-zA-Z0-9_]+(?:\s*\.\s*[a-zA-Z0-9_]+)*)\s*:?\s*/i, '').trim();
+ }
  cleaned = maskSensitiveAnatomy(enforceRespectfulFemaleGrammar(cleaned));
- const sentenceMatches = cleaned.match(/[^.!?~…\n]+(?:[.!?~…]+|$)/g) || [cleaned];
+ const sentenceMatches = cleaned.split(/(?<=[.!?~…])\s+/).filter(Boolean);
  let result = '';
  for (const s of sentenceMatches) {
   const trimmed = s.trim();
@@ -382,20 +403,27 @@ export function sanitizeInstagramText(text:string,maxWords=15):string {
   const count = candidate.split(/\s+/).filter(Boolean).length;
   if (result && count > maxWords) break;
   result = candidate;
-  if (count >= maxWords || (maxWords <= 8 && result.split(/[.!?~…]+/).filter(Boolean).length >= 1)) break;
-  if (result.split(/[.!?~…]+/).filter(Boolean).length >= 2) break;
+  if (count >= maxWords || (maxWords <= 8 && result.split(/(?<=[.!?~…])\s+/).filter(Boolean).length >= 1)) break;
+  if (result.split(/(?<=[.!?~…])\s+/).filter(Boolean).length >= 2) break;
  }
  if (!result) result = cleaned;
  const words = result.split(/\s+/).filter(Boolean);
  if (words.length > maxWords) {
-  const punct = result.match(new RegExp(`^((?:\\S+\\s+){1,${maxWords - 1}}\\S+?[.!?~…])`, 'u'));
-  if (punct && punct[1]) {
-   result = punct[1].trim();
-  } else {
-   result = words.slice(0, maxWords).join(' ');
-  }
+  result = words.slice(0, maxWords).join(' ');
  }
  return maskSensitiveAnatomy(result.replace(/[,;:\-\s]+$/, '').trim());
+}
+
+export function formatCommentReply(text: string, username?: string): string {
+ let cleaned = text.trim();
+ while (/^@(?:[a-zA-Z0-9_]+(?:\s*\.\s*[a-zA-Z0-9_]+)*)\s*:?\s*/i.test(cleaned)) {
+  cleaned = cleaned.replace(/^@(?:[a-zA-Z0-9_]+(?:\s*\.\s*[a-zA-Z0-9_]+)*)\s*:?\s*/i, '').trim();
+ }
+ const handle = (username || '').replace(/^@+/, '').trim();
+ if (handle && handle !== 'Instagram user' && !handle.startsWith('ig_') && /^[a-zA-Z0-9._]+$/.test(handle)) {
+  return `@${handle} ${cleaned}`;
+ }
+ return cleaned;
 }
 export async function generateReply(input:string,channel:'dm'|'comment',history:Thread['messages']=[],accountId?:string,providerOverride?:string,options?:{uncensored?:boolean;systemPrompt?:string;temperature?:number;modelOverride?:string;postContext?:string;mediaType?:string;recipientUsername?:string}){
  const directName=nameOnlyReply(input);if(directName)return directName;
@@ -429,7 +457,13 @@ export async function generateReply(input:string,channel:'dm'|'comment',history:
  const reference=s.language==='English'?'English':s.language==='Hinglish'?'Kya baat hai':languageReference(input.split('\n').at(-1)||input,history);
  const isAdultTone=(account?.tone||s.tone)==='erotic'||(account?.tone||s.tone)==='spicy'||uncensored;
  const targetMaxWords=s.maxWords??(s.length===1?8:s.length===2?15:s.length===3?28:12);
- const cleanInput=input.trim();
+ let cleanInput=input.trim();
+ if (channel === 'comment') {
+  cleanInput = cleanInput.replace(/^@?kurain\.[a-z0-9_]+\s*/i, '').trim();
+  if (account?.username) {
+   cleanInput = cleanInput.replace(new RegExp(`^@?${account.username}\\s*`, 'i'), '').trim();
+  }
+ }
  const defaultSystem = buildSystemPrompt(s, channel, replyName, targetMaxWords, {
   tone: account?.tone,
   customInstructions: account?.customInstructions,
@@ -459,15 +493,9 @@ export async function generateReply(input:string,channel:'dm'|'comment',history:
   const text=m.text.trim();
   if(!text)continue;
   if(conversationTurns.length&&conversationTurns[conversationTurns.length-1].role===role){
-   const formattedText = role === 'user'
-     ? `[User said]: ${text}`
-     : `[You replied]: ${text}`;
-   conversationTurns[conversationTurns.length-1].content+='\n'+formattedText;
+   conversationTurns[conversationTurns.length-1].content+='\n'+text;
   }else{
-   const formattedText = role === 'user'
-     ? `[User said]: ${text}`
-     : `[You replied]: ${text}`;
-   conversationTurns.push({role,content:formattedText});
+   conversationTurns.push({role,content:text});
   }
  }
  if(cleanInput){
@@ -475,15 +503,15 @@ export async function generateReply(input:string,channel:'dm'|'comment',history:
     ? `[Comment on ${options.mediaType || 'reel/post'}: "${options.postContext}"]\n${cleanInput}`
     : cleanInput;
   if(!conversationTurns.length){
-   conversationTurns.push({role:'user',content:`[User said]: ${inputWithContext}`});
+   conversationTurns.push({role:'user',content:inputWithContext});
   }else{
    const lastTurn=conversationTurns[conversationTurns.length-1];
    if(lastTurn.role==='user'){
     if(!lastTurn.content.endsWith(inputWithContext)){
-     lastTurn.content+='\n'+`[User said]: ${inputWithContext}`;
+     lastTurn.content+='\n'+inputWithContext;
     }
    }else{
-    conversationTurns.push({role:'user',content:`[User said]: ${inputWithContext}`});
+    conversationTurns.push({role:'user',content:inputWithContext});
    }
   }
  }
@@ -514,7 +542,7 @@ export async function generateReply(input:string,channel:'dm'|'comment',history:
       const replyText = result?.response || result?.choices?.[0]?.message?.content || (typeof result === 'string' ? result : '');
       if(replyText && !isGenericRefusal(replyText)){
        await claimGeneration();
-       return sanitizeInstagramText(replyText, targetMaxWords);
+       return replyText;
       }
      }catch{}
     }
@@ -542,7 +570,7 @@ export async function generateReply(input:string,channel:'dm'|'comment',history:
     const cfText = String(data.choices?.[0]?.message?.content??'').replace(/<think>[\s\S]*?<\/think>/g,'').trim();
     if(cfText && !isGenericRefusal(cfText)){
      await claimGeneration();
-     return sanitizeInstagramText(cfText, targetMaxWords);
+     return cfText;
     }
     continue;
    }
@@ -603,7 +631,7 @@ export async function generateReply(input:string,channel:'dm'|'comment',history:
     }
     if(hordeReply && !isGenericRefusal(hordeReply)){
      await claimGeneration();
-     return sanitizeInstagramText(hordeReply,targetMaxWords);
+     return hordeReply;
     }
     await markProviderLimited(candidate,Date.now()+45000);limitedId=candidate.id;continue;
    }
@@ -671,28 +699,112 @@ export async function generateReply(input:string,channel:'dm'|'comment',history:
   if(previous.length && repeatedReply(reply,previous) && !isProfileQuestion(input))throw new AppError('A repeated draft was withheld and will be regenerated.',422,true);
   reply=varyEmoji(reply,previous);
   if(!reply||reply.length>1000||needsRomanization(reference,reply)||(s.length===1&&reply.split(/\s+/).length>targetMaxWords))throw new AppError('This reply needs a fresh draft. No message was sent.',422);
+ } else {
+  reply=varyEmoji(reply,previous,true);
  }
+ const cleanReply=sanitizeInstagramText(reply,targetMaxWords);
  if(channel==='comment'&&options?.recipientUsername){
-  const mention='@'+options.recipientUsername.replace(/^@+/,'');
-  if(!reply.startsWith('@')){
-   reply=mention+' '+reply;
-  }
+  return formatCommentReply(cleanReply,options.recipientUsername);
  }
- return sanitizeInstagramText(reply,targetMaxWords);
+ return cleanReply;
 }
 
 export async function sendReply(t:Thread,text:string,eventId?:string,eventIds:string[]=eventId?[eventId]:[]){
- let outboundText=text;
- if(t.channel==='comment'&&t.username){
-  const mention='@'+t.username.replace(/^@+/,'');
-  if(!outboundText.startsWith('@')){
-   outboundText=mention+' '+outboundText;
+  const isSnapLink = text.includes('https://') || text.includes('/snap/');
+  const usePrivateReply = t.channel === 'comment' && !!t.commentId && isSnapLink;
+
+  let outboundText = text;
+  if (t.channel === 'comment' && t.username && !usePrivateReply) {
+    outboundText = formatCommentReply(outboundText, t.username);
   }
- }
- const flag=reviewFlag(outboundText);if(flag)throw new AppError(flag,422);if(t.demo){t.messages.push({role:'outgoing',text:outboundText,at:Date.now()});t.draft='';t.status='resolved';await saveThread(t);await audit('Preview reply','Simulated a reply to '+t.name,true);return;}
- const c=(await instagramAccounts()).find(a=>a.id===(t.accountId||'legacy-instagram'));if(!c?.verified)throw new AppError('Test your Instagram connection before sending a live reply.',412);if(t.channel==='dm'&&Date.now()-t.lastInbound>=86400000)throw new AppError('The 24-hour DM reply window has closed.',422);if(t.channel==='dm'&&!t.recipientId||t.channel==='comment'&&!t.commentId)throw new AppError('This interaction has no valid Instagram recipient.',422);
- const token=await secret(accountTokenId(c.id));if(!token)throw new AppError('This account has no access token.',412);const s=await settings();if(eventId&&!automationWindow(s).active)throw new AppError('Scheduled break: the reply remains queued.',409,true);if(eventIds.some(id=>t.lastReplyEventIds?.includes(id)||t.lastReplyEventId===id))throw new AppError('This message already has a confirmed reply.',409);const oldStatus=t.status==='sending'||t.status==='uncertain'?(t.draft?'review':'open'):t.status;t.status='sending';t.pendingEventId=eventId;await saveThread(t);t.version=(t.version||0)+1;const url='https://graph.instagram.com/'+s.graphVersion+'/'+(t.channel==='dm'?c.igId+'/messages':t.commentId+'/replies');
- const body=t.channel==='dm'?JSON.stringify({recipient:{id:t.recipientId},message:{text:outboundText}}):JSON.stringify({message:outboundText});let response:Response;try{response=await fetch(url,{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body,signal:AbortSignal.timeout(6000)});}catch{await traceAPI('meta',c.id,'meta',0,new Headers());t.status=oldStatus;await saveThread(t);await audit('Send timed out','Instagram send timed out for '+t.username);throw new AppError('The send timed out. Please try sending again.',503);}let metadata:any;try{metadata=await response.clone().json();}catch{}await traceAPI('meta',c.id,'meta',response.status,response.headers,metadata);if(!response.ok){t.status=oldStatus;await saveThread(t);throw new AppError('Instagram rejected this reply (HTTP '+response.status+'). Check permissions and the messaging window.',response.status===429?429:502,response.status===429);}let receipt:any;try{receipt=await response.json();}catch{}if(!(receipt?.message_id||receipt?.id)){t.status=oldStatus;await saveThread(t);throw new AppError('Instagram did not return a delivery confirmation ID.',502);}t.lastReplyEventId=eventId;t.lastReplyEventIds=eventIds;t.pendingEventId=undefined;t.messages.push({role:'outgoing',text:outboundText,at:Date.now()});t.draft='';t.status='resolved';await saveThread(t);const day=new Date().toISOString().slice(0,10);await db().prepare('INSERT INTO usage (day,calls,tokens,sent) VALUES (?,0,0,1) ON CONFLICT(day) DO UPDATE SET sent=sent+1').bind(day).run();await audit('Reply sent','Sent a '+(t.channel==='dm'?'DM':'comment reply')+' to '+t.username);}
+  const flag = reviewFlag(outboundText);
+  if (flag) throw new AppError(flag, 422);
+  if (t.demo) {
+    t.messages.push({ role: 'outgoing', text: outboundText, at: Date.now() });
+    t.draft = '';
+    t.status = 'resolved';
+    await saveThread(t);
+    await audit('Preview reply', 'Simulated a reply to ' + t.name, true);
+    return;
+  }
+  const c = (await instagramAccounts()).find(a => a.id === (t.accountId || 'legacy-instagram'));
+  if (!c?.verified) throw new AppError('Test your Instagram connection before sending a live reply.', 412);
+  if (t.channel === 'dm' && Date.now() - t.lastInbound >= 86400000) throw new AppError('The 24-hour DM reply window has closed.', 422);
+  if (t.channel === 'dm' && !t.recipientId || t.channel === 'comment' && !t.commentId) throw new AppError('This interaction has no valid Instagram recipient.', 422);
+
+  const token = await secret(accountTokenId(c.id));
+  if (!token) throw new AppError('This account has no access token.', 412);
+  const s = await settings();
+  const chWin = channelAutomationWindow(s, t.channel, c, Date.now());
+  if (eventId && !chWin.active) throw new AppError('Scheduled break: ' + (t.channel === 'dm' ? 'DMs are resting' : 'Comments are paused') + '. The reply remains queued.', 409, true);
+  if (eventIds.some(id => t.lastReplyEventIds?.includes(id) || t.lastReplyEventId === id)) throw new AppError('This message already has a confirmed reply.', 409);
+
+  const oldStatus = t.status === 'sending' || t.status === 'uncertain' ? (t.draft ? 'review' : 'open') : t.status;
+  t.status = 'sending';
+  t.pendingEventId = eventId;
+  await saveThread(t);
+  t.version = (t.version || 0) + 1;
+
+  const url = 'https://graph.instagram.com/' + s.graphVersion + '/' + (t.channel === 'dm' || usePrivateReply ? c.igId + '/messages' : t.commentId + '/replies');
+  const body = t.channel === 'dm'
+    ? JSON.stringify({ recipient: { id: t.recipientId }, message: { text: outboundText } })
+    : usePrivateReply
+    ? JSON.stringify({ recipient: { comment_id: t.commentId }, message: { text: outboundText } })
+    : JSON.stringify({ message: outboundText });
+
+  let response: Response;
+  try {
+    response = await fetch(url, { method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body, signal: AbortSignal.timeout(6000) });
+  } catch {
+    await traceAPI('meta', c.id, 'meta', 0, new Headers());
+    t.status = oldStatus;
+    await saveThread(t);
+    await audit('Send timed out', 'Instagram send timed out for ' + t.username);
+    throw new AppError('The send timed out. Please try sending again.', 503);
+  }
+
+  let metadata: any;
+  try { metadata = await response.clone().json(); } catch {}
+  await traceAPI('meta', c.id, 'meta', response.status, response.headers, metadata);
+
+  if (!response.ok) {
+    t.status = oldStatus;
+    await saveThread(t);
+    throw new AppError('Instagram rejected this reply (HTTP ' + response.status + '). Check permissions and the messaging window.', response.status === 429 ? 429 : 502, response.status === 429);
+  }
+
+  let receipt: any;
+  try { receipt = await response.json(); } catch {}
+  if (!(receipt?.message_id || receipt?.id)) {
+    t.status = oldStatus;
+    await saveThread(t);
+    throw new AppError('Instagram did not return a delivery confirmation ID.', 502);
+  }
+
+  // If private DM was sent for a comment, also post a short confirmation comment publicly
+  if (usePrivateReply && t.commentId) {
+    const pubUrl = 'https://graph.instagram.com/' + s.graphVersion + '/' + t.commentId + '/replies';
+    const pubText = formatCommentReply('Sent to your DM! Check your inbox 😉🤍', t.username || '');
+    fetch(pubUrl, {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: pubText }),
+      signal: AbortSignal.timeout(6000)
+    }).catch(() => {});
+  }
+
+  t.lastReplyEventId = eventId;
+  t.lastReplyEventIds = eventIds;
+  t.pendingEventId = undefined;
+  t.messages.push({ role: 'outgoing', text: outboundText, at: Date.now() });
+  t.draft = '';
+  t.status = 'resolved';
+  await saveThread(t);
+
+  const day = new Date().toISOString().slice(0, 10);
+  await db().prepare('INSERT INTO usage (day,calls,tokens,sent) VALUES (?,0,0,1) ON CONFLICT(day) DO UPDATE SET sent=sent+1').bind(day).run();
+  await audit('Reply sent', 'Sent a ' + (t.channel === 'dm' || usePrivateReply ? 'private DM' : 'comment reply') + ' to ' + t.username);
+}
 
 export async function fetchInstagramMediaDetails(mediaId:string, accountId?:string): Promise<{id:string;caption?:string;media_type?:string;media_product_type?:string;permalink?:string}|null> {
  if(!mediaId)return null;
@@ -724,7 +836,41 @@ export async function fetchInstagramMediaDetails(mediaId:string, accountId?:stri
  return null;
 }
 
-export async function syncInstagramReels(accountId?:string): Promise<{synced:number;items:any[]}> {
+export async function syncSingleReelIfNew(mediaId: string, accountId?: string): Promise<boolean> {
+ if (!mediaId) return false;
+ const sCurrent = await settings();
+ const existingCatalog = sCurrent.postCatalog || [];
+
+ // FAST CHECK: If it already exists in the catalog, DO NOT waste time or API calls!
+ if (existingCatalog.some(p => p.id === mediaId)) {
+   return false;
+ }
+
+ // Brand new reel detected! Fetch its details and register immediately
+ const details = await fetchInstagramMediaDetails(mediaId, accountId);
+ if (!details) return false;
+
+ const newEntry = {
+   id: details.id,
+   title: (details.caption || 'Reel ' + details.id).slice(0, 50).replace(/[\r\n]+/g, ' ').trim(),
+   caption: details.caption || '',
+   description: details.caption || 'Instagram published ' + ((details.media_product_type || details.media_type || 'reel').toLowerCase()),
+   contentType: details.media_product_type === 'REELS' || details.media_type === 'VIDEO' ? ('reel' as const) : ('post' as const),
+   dateAdded: (details as any).timestamp ? new Date((details as any).timestamp).getTime() : Date.now(),
+   publishedAt: (details as any).timestamp || (new Date().toISOString()),
+   commentsEnabled: true,
+   snapUrl: '',
+   snapLabel: ''
+ };
+
+ const updatedCatalog = [newEntry, ...existingCatalog];
+ updatedCatalog.sort((a, b) => (b.dateAdded || 0) - (a.dateAdded || 0));
+ await writeState('settings', { ...sCurrent, postCatalog: updatedCatalog });
+ await audit('New Reel auto-synced', `Instantly synced newly uploaded reel: "${newEntry.title}" (${mediaId})`);
+ return true;
+}
+
+export async function syncInstagramReels(accountId?:string, stopAtExisting=true): Promise<{synced:number;newCount:number;items:any[]}> {
  const accounts=await instagramAccounts();
  const acc=(accountId?accounts.find(a=>a.id===accountId):null)||accounts.find(a=>a.verified)||accounts[0];
  if(!acc)throw new AppError('No verified Instagram account found to sync reels from.',412);
@@ -734,21 +880,36 @@ export async function syncInstagramReels(accountId?:string): Promise<{synced:num
  const graphVersion=s.graphVersion||'v25.0';
  const ownerId=acc.igId||'me';
  
- const allFetchedItems: any[] = [];
- let nextUrl: string | null = `https://graph.instagram.com/${graphVersion}/${ownerId}/media?fields=id,caption,media_type,media_product_type,permalink,timestamp,thumbnail_url&limit=100`;
- let pagesFetched = 0;
+ const sCurrent = await settings();
+ const existingCatalog = sCurrent.postCatalog || [];
+ const existingIds = new Set(existingCatalog.map(p => p.id));
 
- while (nextUrl && pagesFetched < 5 && allFetchedItems.length < 300) {
+ const allFetchedItems: any[] = [];
+ let nextUrl: string | null = `https://graph.instagram.com/${graphVersion}/${ownerId}/media?fields=id,caption,media_type,media_product_type,permalink,timestamp,thumbnail_url&limit=25`;
+ let pagesFetched = 0;
+ let reachedExisting = false;
+
+ while (nextUrl && pagesFetched < 5 && allFetchedItems.length < 100 && !reachedExisting) {
    try {
-     const res = await fetch(nextUrl, { headers: { Authorization: 'Bearer ' + token }, signal: AbortSignal.timeout(12000) });
+     const res = await fetch(nextUrl, { headers: { Authorization: 'Bearer ' + token }, signal: AbortSignal.timeout(10000) });
      if (!res.ok) {
-       if (allFetchedItems.length > 0) break; // If we already got items, return what we have
+       if (allFetchedItems.length > 0) break;
        const errData: any = await res.json().catch(() => ({}));
        throw new AppError('Instagram media sync failed: ' + (errData?.error?.message || res.statusText), 502);
      }
      const pageData: any = await res.json();
      const pageItems: any[] = pageData?.data || [];
-     allFetchedItems.push(...pageItems);
+     
+     for (const item of pageItems) {
+       if (stopAtExisting && existingIds.has(item.id)) {
+         // Stop scanning! Since Instagram returns media newest-first,
+         // the moment we hit a reel already in our catalog, all subsequent ones are already synced.
+         reachedExisting = true;
+         break;
+       }
+       allFetchedItems.push(item);
+     }
+     if (reachedExisting) break;
      nextUrl = pageData?.paging?.next || null;
      pagesFetched++;
    } catch (err: any) {
@@ -757,10 +918,7 @@ export async function syncInstagramReels(accountId?:string): Promise<{synced:num
    }
  }
 
- const sCurrent = await settings();
- const existingCatalog = sCurrent.postCatalog || [];
  let newCount = 0;
-
  for (const item of allFetchedItems) {
    await writeState('media_cache:' + item.id, { ...item, _cachedAt: Date.now() });
    const existing = existingCatalog.find(p => p.id === item.id);
@@ -771,25 +929,119 @@ export async function syncInstagramReels(accountId?:string): Promise<{synced:num
        caption: item.caption || '',
        description: item.caption || 'Instagram published ' + ((item.media_product_type || item.media_type || 'reel').toLowerCase()),
        contentType: item.media_product_type === 'REELS' || item.media_type === 'VIDEO' ? 'reel' : 'post',
-       dateAdded: item.timestamp ? new Date(item.timestamp).getTime() : Date.now()
+       dateAdded: item.timestamp ? new Date(item.timestamp).getTime() : Date.now(),
+       publishedAt: item.timestamp || (new Date().toISOString()),
+       commentsEnabled: true,
+       snapUrl: '',
+       snapLabel: ''
      });
      newCount++;
-   } else if (item.caption && (!existing.caption || existing.caption !== item.caption)) {
-     existing.caption = item.caption;
-     existing.description = item.caption;
-     existing.title = item.caption.slice(0, 50).replace(/[\r\n]+/g, ' ').trim();
    }
  }
 
- // Sort catalog by dateAdded descending
  existingCatalog.sort((a, b) => (b.dateAdded || 0) - (a.dateAdded || 0));
 
  if (newCount > 0) {
    await writeState('settings', { ...sCurrent, postCatalog: existingCatalog });
-   await audit('Reels synced', `Imported ${newCount} new reels/posts from @${acc.username} (total catalog: ${existingCatalog.length})`);
- } else {
-   await writeState('settings', { ...sCurrent, postCatalog: existingCatalog });
+   await audit('Reels synced', `Imported ${newCount} new reels from @${acc.username} (total catalog: ${existingCatalog.length})`);
  }
 
- return { synced: allFetchedItems.length, items: allFetchedItems };
+ return { synced: allFetchedItems.length, newCount, items: allFetchedItems };
+}
+
+export type SnapItem = {
+ token: string;
+ imageUrl: string;
+ recipientId: string;
+ username: string;
+ accountId: string;
+ createdAt: number;
+ expiresAt: number;
+ viewedAt: number | null;
+ burned: boolean;
+ durationSeconds: number;
+};
+
+export async function checkUserFollowsBusiness(recipientId: string, accountId?: string): Promise<{ isFollowing: boolean; username?: string }> {
+ if (!recipientId) return { isFollowing: false };
+ try {
+  const accounts = await instagramAccounts();
+  const acc = (accountId ? accounts.find(a => a.id === accountId) : null) || accounts.find(a => a.verified) || accounts[0];
+  if (!acc) return { isFollowing: false };
+  const token = await secret(accountTokenId(acc.id));
+  if (!token) return { isFollowing: false };
+  const s = await settings();
+  const graphVersion = s.graphVersion || 'v25.0';
+  const url = `https://graph.instagram.com/${graphVersion}/${recipientId}?fields=is_user_follow_business,username`;
+  const res = await fetch(url, {
+   headers: { Authorization: `Bearer ${token}` },
+   signal: AbortSignal.timeout(6000)
+  });
+  if (!res.ok) {
+   return { isFollowing: false };
+  }
+  const data: any = await res.json();
+  return {
+   isFollowing: !!data?.is_user_follow_business,
+   username: data?.username
+  };
+ } catch (err) {
+  console.warn('Error checking user follower status:', err);
+  return { isFollowing: false };
+ }
+}
+
+export async function createSnapToken({
+ imageUrl,
+ recipientId,
+ username,
+ accountId,
+ durationSeconds = 7
+}: {
+ imageUrl: string;
+ recipientId: string;
+ username: string;
+ accountId: string;
+ durationSeconds?: number;
+}): Promise<string> {
+ const normalizedUrl = imageUrl.trim();
+ let finalUrl = normalizedUrl;
+ const driveMatch = normalizedUrl.match(/\/file\/d\/([a-zA-Z0-9_-]+)/) || normalizedUrl.match(/[?&]id=([a-zA-Z0-9_-]+)/) || normalizedUrl.match(/[?&]driveId=([a-zA-Z0-9_-]+)/);
+ if (driveMatch && driveMatch[1]) {
+  finalUrl = `https://automation.ninakurainservices.in/api/media?driveId=${driveMatch[1]}`;
+ } else if (normalizedUrl.startsWith('/api/')) {
+  finalUrl = `https://automation.ninakurainservices.in${normalizedUrl}`;
+ }
+
+ const token = crypto.randomUUID().replace(/-/g, '').slice(0, 16);
+ const snap: SnapItem = {
+  token,
+  imageUrl: finalUrl,
+  recipientId,
+  username: username || 'follower',
+  accountId,
+  createdAt: Date.now(),
+  expiresAt: Date.now() + 86400000 * 3, // Valid for 3 days until viewed
+  viewedAt: null,
+  burned: false,
+  durationSeconds: Math.max(3, Math.min(30, durationSeconds))
+ };
+ await writeState(`snap:${token}`, snap);
+ return token;
+}
+
+export async function getSnap(token: string): Promise<SnapItem | null> {
+ if (!token) return null;
+ const snap = await readState<SnapItem | null>(`snap:${token}`, null);
+ return snap;
+}
+
+export async function burnSnap(token: string): Promise<void> {
+ if (!token) return;
+ const snap = await readState<SnapItem | null>(`snap:${token}`, null);
+ if (snap) {
+  snap.burned = true;
+  snap.viewedAt = snap.viewedAt || Date.now();
+  await writeState(`snap:${token}`, snap);
+ }
 }

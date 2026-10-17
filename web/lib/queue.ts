@@ -1,6 +1,6 @@
-import {db,settings,getThread,saveThread,generateReply,sendReply,reviewFlag,audit,AppError,instagramAccounts,cleanupHistory,fetchInstagramMediaDetails} from './server';
-import {automationWindow} from './automation-window';
-import type {Thread} from './model';
+import {db,settings,getThread,saveThread,generateReply,sendReply,reviewFlag,audit,AppError,instagramAccounts,cleanupHistory,fetchInstagramMediaDetails,checkUserFollowsBusiness,createSnapToken,syncSingleReelIfNew,syncInstagramReels,readState,writeState} from './server';
+import {automationWindow, channelAutomationWindow} from './automation-window';
+import type {Thread, Channel, Message} from './model';
 
 type Job={id:string;thread_id:string;payload:string;attempts:number;created:number};
 
@@ -31,13 +31,15 @@ async function recoverStaleJobs(){
 export async function drainPendingReviews(): Promise<number> {
  const s=await settings();
  if(s.approval)return 0;
- const now=Date.now(),window=automationWindow(s,now);
- if(!window.active)return 0;
+ const accounts=await instagramAccounts();
  try{
   const pendingReviews=(await db().prepare("SELECT payload FROM threads WHERE demo=0 AND json_extract(payload,'$.status')='review' AND json_extract(payload,'$.draft')!='' LIMIT 1").all<{payload:string}>()).results;
   let sent=0;
   for(const r of pendingReviews){
    const revT=JSON.parse(r.payload) as Thread;
+   const acc=accounts.find(a=>a.id===(revT.accountId||'legacy-instagram'));
+   const win=channelAutomationWindow(s,revT.channel,acc,Date.now());
+   if(!win.active)continue;
    if(!revT.flagged&&revT.draft){
     try{
      const latestIncoming=revT.messages.filter(m=>m.role==='incoming').at(-1);
@@ -66,16 +68,34 @@ export async function queueStatus(){
 }
 
 export async function processNextJob(){
- await throttledCleanup();await recoverStaleJobs();const s=await settings();const now=Date.now(),window=automationWindow(s,now);
+ await throttledCleanup();await recoverStaleJobs();const s=await settings();
+ const accounts=await instagramAccounts();
+ const now=Date.now();
  const job=await db().prepare(`SELECT j.* FROM jobs j WHERE j.status='pending' AND j.attempts<5 AND j.created<=?
  AND NOT EXISTS (SELECT 1 FROM jobs p WHERE p.thread_id=j.thread_id AND p.status='processing')
  ORDER BY j.created ASC LIMIT 1`).bind(now).first<Job>();
  if(!job)return {processed:0};
  let parsedJob:any=null;
  try{parsedJob=JSON.parse(job.payload);}catch{}
- const isDm=parsedJob?.channel==='dm';
- const waitMs=Math.max(0,(s.replyDelaySeconds||0))*1000;
- if(isDm&&waitMs>0){
+ const channel:Channel=parsedJob?.channel==='comment'?'comment':'dm';
+ const account=accounts.find(a=>a.id===(parsedJob?.accountId||'legacy-instagram'));
+
+ // Channel automation window check (comments active 24/7 vs DMs sleep/break):
+ const win=channelAutomationWindow(s,channel,account,now);
+ if(!win.active){
+  if(win.nextChangeAt && win.nextChangeAt > now){
+   await db().prepare("UPDATE jobs SET created=? WHERE id=? AND status='pending'").bind(win.nextChangeAt,job.id).run();
+  }
+  return {processed:0,sleeping:true};
+ }
+
+ // Wait window calculation (channel-wise and account-wise):
+ const waitSeconds = channel === 'dm'
+  ? (account?.dmReplyDelaySeconds ?? account?.replyDelaySeconds ?? s.dmReplyDelaySeconds ?? s.replyDelaySeconds ?? 30)
+  : (account?.commentReplyDelaySeconds ?? account?.replyDelaySeconds ?? s.commentReplyDelaySeconds ?? 5);
+ const waitMs = Math.max(0, waitSeconds) * 1000;
+
+ if(waitMs>0){
   const threadJobs=(await db().prepare("SELECT id,created,payload FROM jobs WHERE thread_id=? AND status='pending' AND attempts<5").bind(job.thread_id).all<{id:string;created:number;payload:string}>()).results;
   let latestMsgAt=0;
   for(const tj of threadJobs){
@@ -124,9 +144,39 @@ export async function processNextJob(){
   if(t.channel==='comment'){
    let dynamicMedia: any = null;
    if(t.mediaId){
-    try{ dynamicMedia = await fetchInstagramMediaDetails(t.mediaId, t.accountId); }catch{}
+    try{
+     await syncSingleReelIfNew(t.mediaId, t.accountId);
+     dynamicMedia = await fetchInstagramMediaDetails(t.mediaId, t.accountId);
+    }catch{}
    }
    if(dynamicMedia?.media_product_type) t.mediaType = dynamicMedia.media_product_type.toLowerCase();
+
+   // 1. Reel upload age cutoff (default 7 days, configurable):
+   const maxAgeDays = s.commentMaxAgeDays ?? 7;
+   if(maxAgeDays > 0){
+    const publishedTime = dynamicMedia?.timestamp
+     ? new Date(dynamicMedia.timestamp).getTime()
+     : (s.postCatalog?.find(p=>p.id===t.mediaId)?.dateAdded);
+    if(publishedTime && !isNaN(publishedTime)){
+     const ageDays = (Date.now() - publishedTime) / 86400000;
+     if(ageDays > maxAgeDays){
+      await finish(ids,'done');
+      await audit('Comment skipped (Reel age cutoff)',`Reel ${t.mediaId} was uploaded ${Math.round(ageDays)} days ago (exceeds ${maxAgeDays} day limit)`);
+      return {processed:group.length,skippedOldReel:true};
+     }
+    }
+   }
+
+   // 2. Selective Reel comments toggle (check if comments are enabled on this reel):
+   if(t.mediaId){
+    const reelEntry=s.postCatalog?.find(p=>p.id===t.mediaId);
+    if(reelEntry && reelEntry.commentsEnabled===false){
+     await finish(ids,'done');
+     await audit('Comment skipped (Reel comments disabled)',`Comments disabled for Reel: "${reelEntry.title||t.mediaId}"`);
+     return {processed:group.length,reelCommentsDisabled:true};
+    }
+   }
+
    const matched = s.postCatalog?.length
     ? ((t.mediaId && s.postCatalog.find(p=>p.id===t.mediaId)) || s.postCatalog.find(p=>p.title&&(input.toLowerCase().includes(p.title.toLowerCase())||(p.caption&&input.toLowerCase().includes(p.caption.toLowerCase())))))
     : null;
@@ -140,17 +190,75 @@ export async function processNextJob(){
   }
   await saveThread(t);t.version=(t.version||0)+1;
   const account=(await instagramAccounts()).find(a=>a.id===(e.accountId||t.accountId||'legacy-instagram'));const excluded=s.excludedUsers||[];
+
+  // 1. PURE CODE AUTOMATION (FOLLOW GATE & VIEW-ONCE SNAP)
+  // Runs independently of AI or general DM automation toggles
+  if (s.followGateEnabled && (t.channel === 'dm' || t.channel === 'comment')) {
+    const lower = input.toLowerCase().trim();
+    const kw = (s.followGateKeyword || '').toLowerCase().trim();
+    const isTargetReel = Boolean(t.mediaId && s.followGateReelIds && s.followGateReelIds.length > 0 && s.followGateReelIds.includes(t.mediaId));
+    const isKeywordMatch = kw ? (lower === kw || lower.includes(kw)) : false;
+    const isExplicitSnapRequest = /\b(snap|view once|once view|pic bhejo|photo bhejo|send pic|send photo|link bhejo|link send|dm link|exclusive pic|photoshoot pic|unlock|unlocked|claim|done|followed)\b/i.test(lower);
+    const shouldTriggerSnap = isKeywordMatch || isExplicitSnapRequest || (isTargetReel && !kw);
+
+    if (shouldTriggerSnap && account?.enabled && account?.verified && !excluded.includes(String(e.recipientId)) && !excluded.includes(account.id+':'+e.recipientId) && t.status!=='sending' && t.status!=='uncertain' && !t.takeover) {
+      if (t.channel === 'dm' && Date.now() - t.lastInbound >= 86400000) {
+        throw new AppError('The 24-hour DM reply window has closed.', 422);
+      }
+      const followerStatus = await checkUserFollowsBusiness(t.recipientId || '', t.accountId);
+      const targetUsername = account?.username || 'ninakurain';
+      let draft = '';
+      if (!followerStatus.isFollowing) {
+        const reminderTemplate = s.followGateUnfollowedMsg || 'Hey! You need to follow @{username} first to unlock this exclusive photoshoot snap 🥺 Follow now and reply "DONE" to claim it 🤍';
+        draft = reminderTemplate.replace(/\{username\}/g, targetUsername);
+      } else {
+        const matchedReel = s.postCatalog?.find(p => p.id === t.mediaId);
+        let chosenPhotoUrl = matchedReel?.snapUrl?.trim();
+        if (!chosenPhotoUrl) {
+          const photos = (s.followGatePhotos && s.followGatePhotos.length > 0) ? s.followGatePhotos : [{ id: '1', url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=1000&q=80', label: 'Golden Hour Park Photoshoot' }];
+          const chosenPhoto = photos[Math.floor(Math.random() * photos.length)];
+          chosenPhotoUrl = chosenPhoto.url;
+        }
+        const snapToken = await createSnapToken({
+          imageUrl: chosenPhotoUrl,
+          recipientId: t.recipientId || '',
+          username: t.username || 'follower',
+          accountId: t.accountId || 'legacy-instagram',
+          durationSeconds: s.followGateDurationSeconds || 7
+        });
+        const successTemplate = s.followGateSuccessMsg || 'Yay! Here is your exclusive photoshoot snap (opens only once 😉):';
+        draft = `${successTemplate}\nhttps://automation.ninakurainservices.in/snap/${snapToken}\n\n⚠️ Tap to view under card. Anti-screenshot protected & self-destructs after ${s.followGateDurationSeconds || 7}s!`;
+      }
+
+      t.draft = draft;
+      if (s.approval) {
+        t.status = 'review';
+        await saveThread(t);
+        t.version = (t.version || 0) + 1;
+      } else {
+        t.status = 'open';
+        await saveThread(t);
+        t.version = (t.version || 0) + 1;
+        await sendReply(t, draft, undefined, ids);
+      }
+      await finish(ids, 'done');
+      await audit('Follow-gate snap delivered', `Delivered automated snap link to ${t.username || t.recipientId} (Rule-based, AI independent)`);
+      return { processed: group.length, sent: true };
+    }
+  }
+
+  // 2. AI CONVERSATIONAL REPLIES (Subject to channel & AI toggles)
   const accountDm=account?account.dmEnabled!==false:true;
   const accountComments=account?account.commentsEnabled!==false:true;
   const accountAi=account?account.aiEnabled!==false:true;
   const channelAllowed=t.channel==='dm'?(s.dm&&accountDm):(s.comments&&accountComments);
   const eligibleBase=account?.enabled&&accountAi&&account.verified&&!excluded.includes(String(e.recipientId))&&!excluded.includes(account.id+':'+e.recipientId)&&t.status!=='sending'&&t.status!=='uncertain'&&!t.takeover&&t.ai&&channelAllowed&&t.lastInbound<=e.at;
-  if(eligibleBase&&!window.active){
-   const nextActive=window.nextChangeAt||(Date.now()+60000);
+  if(eligibleBase&&!win.active){
+   const nextActive=win.nextChangeAt||(Date.now()+60000);
    await postpone(group,nextActive,true);
    return {processed:group.length,deferred:true};
   }
-  const eligible=window.active&&eligibleBase;
+  const eligible=win.active&&eligibleBase;
   if(eligible){
    if(t.channel==='dm'&&Date.now()-t.lastInbound>=86400000)throw new AppError('The 24-hour DM reply window has closed.',422);
    if(t.flagged&&!t.flagged.startsWith('Explicit message')){t.status='review';await saveThread(t);t.version=(t.version||0)+1;}
@@ -162,10 +270,32 @@ export async function processNextJob(){
       return {processed:group.length,deferred:true};
      }
     }
-    const history=t.messages.filter(m=>!(m.role==='incoming'&&ids.includes(m.eventId||'')));
-    const isUncensoredTone=((account?.tone||s.tone)==='erotic'||(account?.tone||s.tone)==='spicy');
-    const draft=await generateReply(input,t.channel,history,t.accountId,undefined,{uncensored:isUncensoredTone,postContext:t.postContext,mediaType:t.mediaType,recipientUsername:t.username});
-    t.draft=draft;
+    let draft = '';
+    let history=t.messages.filter(m=>!(m.role==='incoming'&&ids.includes(m.eventId||'')));
+      if(t.channel==='comment'&&history.length<=1){
+        try{
+          if(t.username && t.username !== 'Instagram user' && !t.username.startsWith('ig_')){
+            const past=await db().prepare("SELECT payload FROM threads WHERE id!=? AND json_extract(payload,'$.channel')='comment' AND json_extract(payload,'$.username')=? ORDER BY updated DESC LIMIT 4").bind(t.id,t.username).all<{payload:string}>();
+            const pastMessages: Message[]=[];
+            for(const row of (past.results||[]).reverse()){
+              try{
+                const pt=JSON.parse(row.payload);
+                if(Array.isArray(pt.messages)){
+                  for(const pm of pt.messages){
+                    pastMessages.push(pm);
+                  }
+                }
+              }catch{}
+            }
+            if(pastMessages.length>0){
+              history=[...pastMessages.slice(-6),...history];
+            }
+          }
+        }catch{}
+      }
+      const isUncensoredTone=t.channel==='dm'&&((account?.tone||s.tone)==='erotic'||(account?.tone||s.tone)==='spicy');
+      draft=await generateReply(input,t.channel,history,t.accountId,undefined,{uncensored:isUncensoredTone,postContext:t.postContext,mediaType:t.mediaType,recipientUsername:t.username});
+      t.draft=draft;
     if(s.approval){
      t.status='review';
      await saveThread(t);
@@ -193,6 +323,13 @@ export async function processQueueBatch(limit=1, resetStuck=false): Promise<{pro
   const now=Date.now();
   await db().prepare("UPDATE jobs SET status='pending',attempts=0,created=? WHERE status='pending' AND attempts>=5").bind(now).run();
   await db().prepare("UPDATE jobs SET status='pending',attempts=0,created=? WHERE status='processing' AND created<?").bind(now,now-30000).run();
+  
+  // Lightweight background check for newly published reels (stops immediately at existing reels)
+  const lastReelScan = await readState<number>('last_reel_sync_at', 0);
+  if (now - lastReelScan > 300000) {
+    await writeState('last_reel_sync_at', now);
+    syncInstagramReels(undefined, true).catch(() => {});
+  }
  }
  const reviewsSent=await drainPendingReviews();
  let totalProcessed=reviewsSent;
