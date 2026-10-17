@@ -248,31 +248,6 @@ export default function LoginPage() {
           </form>
         )}
 
-        <div style={{ marginTop: '20px', textAlign: 'center' }}>
-          <a
-            href="/demo"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '8px',
-              padding: '10px 16px',
-              width: '100%',
-              borderRadius: '12px',
-              background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(168, 85, 247, 0.12))',
-              border: '1px solid rgba(129, 140, 248, 0.35)',
-              color: '#818cf8',
-              fontSize: '13px',
-              fontWeight: 600,
-              textDecoration: 'none',
-              transition: 'all 0.2s ease',
-            }}
-          >
-            <Sparkles size={15} />
-            <span>Try Public Interactive Demo (No Login Required)</span>
-            <ArrowRight size={14} />
-          </a>
-        </div>
 
         <div className="login-security" style={{ marginTop: '22px' }}>
           <ShieldCheck size={14} />
