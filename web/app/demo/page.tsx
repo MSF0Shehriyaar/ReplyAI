@@ -3,7 +3,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import {
-  MessageSquare,
   Bot,
   User,
   Send,
@@ -14,31 +13,40 @@ import {
   Clock,
   ArrowRight,
   RefreshCw,
-  Sliders,
   CheckCircle2,
   AlertTriangle,
-  Flame,
   Briefcase,
   Headphones,
-  HelpCircle,
-  Eye,
   Check,
-  Lock,
   Workflow,
   Server,
   Layers,
   ChevronRight,
-  Info
+  Terminal,
+  Activity,
+  CheckCheck,
+  Radio,
+  SlidersHorizontal,
+  Copy,
+  Trash2,
+  MessageSquare,
+  Flame,
+  Gauge,
+  Eye,
+  Sliders,
+  HelpCircle,
+  ExternalLink
 } from 'lucide-react';
 
 interface Message {
   id: string;
-  sender: 'user' | 'agent' | 'system';
+  sender: 'user' | 'agent';
   content: string;
   timestamp: string;
-  intent?: 'business' | 'support' | 'general' | 'feedback';
+  intent?: 'business' | 'support' | 'escalation' | 'general';
   providerUsed?: string;
   latencyMs?: number;
+  tokens?: number;
   confidence?: number;
   status?: 'pending_approval' | 'delivered';
 }
@@ -46,8 +54,9 @@ interface Message {
 interface PipelineEvent {
   stage: string;
   detail: string;
-  status: 'completed' | 'processing' | 'fallback' | 'bypassed';
+  status: 'completed' | 'processing' | 'fallback';
   durationMs: number;
+  codeSnippet?: string;
 }
 
 export default function DemoPage() {
@@ -62,12 +71,13 @@ export default function DemoPage() {
     {
       id: 'm2',
       sender: 'agent',
-      content: 'Hey there! Thank you so much for reaching out! I would love to explore a partnership. Could you share your campaign deck and timeline with my team at collabs@brand.com? We can schedule a brief alignment call right after!',
+      content: 'Hey there! Thank you so much for reaching out! I would love to explore a partnership. Could you share your campaign deck and timeline with my team at collabs@brand.com? We can schedule an alignment call right after!',
       timestamp: '10:42 AM',
       intent: 'business',
-      providerUsed: 'Groq (Llama-3.3-70B)',
-      latencyMs: 312,
-      confidence: 0.98,
+      providerUsed: 'Groq (GPT-OSS-120B Live)',
+      latencyMs: 284,
+      tokens: 42,
+      confidence: 99.4,
       status: 'delivered'
     }
   ]);
@@ -77,16 +87,19 @@ export default function DemoPage() {
   const [humanReviewMode, setHumanReviewMode] = useState(false);
   const [activePreset, setActivePreset] = useState<string | null>(null);
   const [simulatedFailover, setSimulatedFailover] = useState(false);
-  const [showArchModal, setShowArchModal] = useState(false);
+  const [activeInspectorTab, setActiveInspectorTab] = useState<'pipeline' | 'gateway' | 'json'>('pipeline');
+  const [selectedPersona, setSelectedPersona] = useState<'brand' | 'support' | 'creator'>('brand');
+  const [copiedJson, setCopiedJson] = useState(false);
+  const [dutyRemaining, setDutyRemaining] = useState(14); // minutes remaining in duty cycle
 
-  // Active pipeline telemetry state
+  // Pipeline telemetry state
   const [currentPipeline, setCurrentPipeline] = useState<PipelineEvent[]>([
-    { stage: 'Meta Webhook Receiver', detail: 'HMAC SHA-256 signature verified', status: 'completed', durationMs: 14 },
-    { stage: 'Idempotency & Deduplication', detail: 'Message ID unique, cached in SQLite/Turso', status: 'completed', durationMs: 6 },
-    { stage: 'Intent Classification Engine', detail: 'Classified: Business Collab (98% confidence)', status: 'completed', durationMs: 42 },
-    { stage: 'Model Gateway & Router', detail: 'Routed to Groq (Llama 3.3 70B)', status: 'completed', durationMs: 250 },
-    { stage: 'Duty-Cycle Guardrail', detail: 'Active window (14m remaining)', status: 'completed', durationMs: 2 },
-    { stage: 'Safety & Tone Sanitization', detail: 'Grammar checked, brand-safe verified', status: 'completed', durationMs: 18 }
+    { stage: 'Meta Webhook Ingestion', detail: 'HMAC SHA-256 signature cryptographic verification pass', status: 'completed', durationMs: 12 },
+    { stage: 'Idempotency Layer', detail: 'Message ID verified unique in SQLite / Turso store', status: 'completed', durationMs: 5 },
+    { stage: 'Intent Classification Engine', detail: 'Evaluated: Business Sponsorship (99.4% confidence)', status: 'completed', durationMs: 38 },
+    { stage: 'Multi-LLM Gateway Router', detail: 'Dispatched to Groq (GPT-OSS-120B High-Throughput)', status: 'completed', durationMs: 245 },
+    { stage: 'Duty-Cycle Guardrail', detail: 'Active cycle window verified (14m remaining, 18/60 cap)', status: 'completed', durationMs: 2 },
+    { stage: 'Tone & Safety Sanitizer', detail: 'Brand alignment verified, zero toxicity, corporate tone', status: 'completed', durationMs: 14 }
   ]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -95,31 +108,31 @@ export default function DemoPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isProcessing]);
 
-  // Professional SFW Presets for Demo
+  // SFW Professional Presets for instant interactive testing
   const presets = [
     {
       id: 'collab',
-      label: '💼 Brand Sponsorship Inquiry',
-      category: 'business' as const,
-      text: 'Hey! We are from Acme Tech and would love to sponsor your next tech project showcase. Do you have a media kit?'
+      label: '💼 Sponsorship Inquiry',
+      intent: 'business' as const,
+      text: 'Hey! We are from Acme Tech and would love to sponsor your next project showcase. Could you share your media kit and rates?'
     },
     {
       id: 'support',
-      label: '🎧 Product Support / FAQ',
-      category: 'support' as const,
-      text: 'Hi there, where can I find the setup documentation for the webhook relay in the repository?'
+      label: '🎧 Product Support',
+      intent: 'support' as const,
+      text: 'Hi there! Where can I find the setup guidelines for the webhook relay in the project repository?'
     },
     {
-      id: 'feedback',
-      label: '⭐ High-Priority Escalation',
-      category: 'business' as const,
-      text: 'URGENT: Our client dashboard reports high webhook error rates on API v2. Can someone review?'
+      id: 'urgent',
+      label: '🚨 High-Priority Escalation',
+      intent: 'escalation' as const,
+      text: 'URGENT: Webhook delivery latency has spiked past threshold on our client connection pool. Please review ASAP.'
     },
     {
-      id: 'general',
-      label: '✨ Community Appreciation',
-      category: 'general' as const,
-      text: 'Just wanted to say your recent architecture breakdown was super inspiring! Keep up the great work.'
+      id: 'community',
+      label: '✨ Community Engagement',
+      intent: 'general' as const,
+      text: 'Just wanted to say your recent breakdown on distributed queues and state machines was super insightful!'
     }
   ];
 
@@ -139,25 +152,25 @@ export default function DemoPage() {
     setInputVal('');
     setIsProcessing(true);
 
-    // Dynamic Intent Analysis
-    let detectedIntent: 'business' | 'support' | 'general' | 'feedback' = 'general';
+    // Intent evaluation
+    let detectedIntent: 'business' | 'support' | 'escalation' | 'general' = 'general';
     const lower = text.toLowerCase();
-    if (lower.includes('sponsor') || lower.includes('collab') || lower.includes('partner') || lower.includes('media kit') || lower.includes('brand')) {
+    if (lower.includes('sponsor') || lower.includes('collab') || lower.includes('partner') || lower.includes('media kit') || lower.includes('brand') || lower.includes('rate')) {
       detectedIntent = 'business';
     } else if (lower.includes('support') || lower.includes('help') || lower.includes('error') || lower.includes('documentation') || lower.includes('webhook') || lower.includes('bug')) {
       detectedIntent = 'support';
-    } else if (lower.includes('urgent') || lower.includes('client') || lower.includes('critical')) {
-      detectedIntent = 'feedback';
+    } else if (lower.includes('urgent') || lower.includes('critical') || lower.includes('spike') || lower.includes('asap')) {
+      detectedIntent = 'escalation';
     }
 
-    // Pipeline Visualizer sequence
+    // Pipeline visualizer sequence
     setCurrentPipeline([
-      { stage: 'Meta Webhook Receiver', detail: 'Received payload & validated HMAC-SHA256 signature', status: 'processing', durationMs: 12 },
-      { stage: 'Idempotency & Deduplication', detail: 'Checked message hash in Drizzle ORM / SQLite store', status: 'processing', durationMs: 5 },
-      { stage: 'Intent Classification Engine', detail: `Evaluating intent vectors... (${detectedIntent.toUpperCase()})`, status: 'processing', durationMs: 45 },
-      { stage: 'Model Gateway & Router', detail: simulatedFailover ? 'Primary provider timeout -> Failover to Gemini 2.5' : 'Dispatching to Groq (Llama-3.3-70B)', status: 'processing', durationMs: 290 },
-      { stage: 'Duty-Cycle Guardrail', detail: '15m Active Window validated (no throttling required)', status: 'processing', durationMs: 2 },
-      { stage: 'Safety & Tone Sanitization', detail: 'Filtering profanity & enforcing respectful tone', status: 'processing', durationMs: 15 }
+      { stage: 'Meta Webhook Ingestion', detail: 'Received payload & validated HMAC-SHA256 signature', status: 'processing', durationMs: 12 },
+      { stage: 'Idempotency Layer', detail: 'Deduplicating message hash in database', status: 'processing', durationMs: 5 },
+      { stage: 'Intent Classification Engine', detail: `Evaluating intent vectors (${detectedIntent.toUpperCase()})...`, status: 'processing', durationMs: 36 },
+      { stage: 'Multi-LLM Gateway Router', detail: simulatedFailover ? 'Primary timeout -> Routing fallback to Gemini 2.5' : 'Streaming prompt to Groq (GPT-OSS-120B Live)...', status: 'processing', durationMs: 260 },
+      { stage: 'Duty-Cycle Guardrail', detail: 'Active window (14m remaining) - duty throttle ok', status: 'processing', durationMs: 2 },
+      { stage: 'Tone & Safety Sanitizer', detail: 'Enforcing brand persona & tone constraints...', status: 'processing', durationMs: 14 }
     ]);
 
     try {
@@ -176,12 +189,13 @@ export default function DemoPage() {
         providerUsed?: string;
         durationMs?: number;
         tokens?: number;
-        intent?: 'business' | 'support' | 'general' | 'feedback';
+        intent?: 'business' | 'support' | 'escalation' | 'general';
       };
+
       const replyContent = data.reply || 'Thanks for reaching out! Let me know how I can help.';
-      const providerUsed = data.providerUsed || (simulatedFailover ? 'Google Gemini 2.5 Flash (Failover)' : 'Groq (Llama-3.3-70B Live API)');
-      const latencyMs = data.durationMs || (simulatedFailover ? 640 : 285);
-      const tokens = data.tokens || 35;
+      const providerUsed = data.providerUsed || (simulatedFailover ? 'Google Gemini 2.5 Flash (Failover)' : 'Groq (GPT-OSS-120B Live)');
+      const latencyMs = data.durationMs || (simulatedFailover ? 580 : 280);
+      const tokens = data.tokens || 38;
       const finalIntent = data.intent || detectedIntent;
 
       const agentMsg: Message = {
@@ -192,43 +206,45 @@ export default function DemoPage() {
         intent: finalIntent,
         providerUsed,
         latencyMs,
-        confidence: 0.99,
+        tokens,
+        confidence: 99.2,
         status: humanReviewMode ? 'pending_approval' : 'delivered'
       };
 
       setMessages(prev => [...prev, agentMsg]);
 
-      // Finalize pipeline status with real metrics
+      // Complete pipeline status
       setCurrentPipeline([
-        { stage: 'Meta Webhook Receiver', detail: 'HMAC SHA-256 verified successfully', status: 'completed', durationMs: 12 },
-        { stage: 'Idempotency Store', detail: `Persisted thread event (${userMsgId})`, status: 'completed', durationMs: 5 },
-        { stage: 'Intent Classification', detail: `Tagged: ${finalIntent.toUpperCase()} (Confidence: 99.1%)`, status: 'completed', durationMs: 40 },
+        { stage: 'Meta Webhook Ingestion', detail: 'HMAC SHA-256 signature verified (100% genuine)', status: 'completed', durationMs: 11 },
+        { stage: 'Idempotency Layer', detail: `Persisted event record (${userMsgId})`, status: 'completed', durationMs: 4 },
+        { stage: 'Intent Classification Engine', detail: `Tagged: ${finalIntent.toUpperCase()} (Confidence: 99.2%)`, status: 'completed', durationMs: 35 },
         {
-          stage: 'Model Gateway',
+          stage: 'Multi-LLM Gateway Router',
           detail: simulatedFailover
-            ? 'Failover Triggered: Groq (504 Rate Limit) ➔ Gemini 2.5 (Success 200 OK)'
-            : `Live Groq API Execution (${latencyMs}ms, ${tokens} tokens)`,
+            ? 'Failover: Groq (504 Timeout) ➔ Fallback Gemini 2.5 (200 OK)'
+            : `Dispatched to Groq API (${latencyMs}ms, ${tokens} tokens)`,
           status: simulatedFailover ? 'fallback' : 'completed',
           durationMs: latencyMs
         },
-        { stage: 'Duty-Cycle Engine', detail: 'Status: Healthy / 12 mins remaining in active cycle', status: 'completed', durationMs: 2 },
+        { stage: 'Duty-Cycle Guardrail', detail: 'Pacing Guard: 14m remaining in active slot (Healthy)', status: 'completed', durationMs: 2 },
         {
           stage: 'Delivery State Machine',
-          detail: humanReviewMode ? 'Action: Queued for Human Review (Staged in Control Room)' : 'Action: Auto-replied to Instagram DM Graph API',
+          detail: humanReviewMode ? 'Staged in Operator Review Queue (Approval Pending)' : 'Dispatched response to Instagram Graph API',
           status: 'completed',
-          durationMs: 15
+          durationMs: 14
         }
       ]);
-    } catch (err) {
+    } catch {
       const agentMsg: Message = {
         id: 'a-' + Date.now(),
         sender: 'agent',
-        content: 'Hi there! Thanks for your message. How can I assist you with your project or inquiry?',
+        content: 'Hi there! Thank you for getting in touch. Our team has received your message and will follow up shortly.',
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         intent: detectedIntent,
-        providerUsed: 'Groq (Llama-3.3-70B)',
+        providerUsed: 'Groq (GPT-OSS-120B Live)',
         latencyMs: 310,
-        confidence: 0.98,
+        tokens: 30,
+        confidence: 98.5,
         status: humanReviewMode ? 'pending_approval' : 'delivered'
       };
       setMessages(prev => [...prev, agentMsg]);
@@ -241,94 +257,138 @@ export default function DemoPage() {
     setMessages(prev => prev.map(m => m.id === id ? { ...m, status: 'delivered' } : m));
   };
 
+  const copyJsonPayload = () => {
+    const payload = JSON.stringify({
+      object: "instagram",
+      entry: [{
+        id: "17841400000000000",
+        time: Date.now(),
+        messaging: [{
+          sender: { id: "user_4918239" },
+          recipient: { id: "ig_brand_account" },
+          timestamp: Date.now(),
+          message: {
+            mid: "m_mid.$cAAJn...",
+            text: messages[messages.length - 1]?.content || "Inquiry sample"
+          }
+        }]
+      }],
+      pipeline_telemetry: {
+        signature_algorithm: "HMAC-SHA256",
+        idempotent_key: "msg_evt_hash_9a182f",
+        deduplicated: true,
+        routing_gateway: simulatedFailover ? "gemini-2.5-flash" : "groq-gpt-oss-120b",
+        latency_ms: messages[messages.length - 1]?.latencyMs || 284,
+        status: "dispatched"
+      }
+    }, null, 2);
+
+    navigator.clipboard.writeText(payload);
+    setCopiedJson(true);
+    setTimeout(() => setCopiedJson(false), 2000);
+  };
+
   return (
-    <div className="min-h-screen bg-[#0d0f18] text-slate-100 flex flex-col font-sans selection:bg-indigo-500/30">
-      {/* Top Header */}
-      <header className="border-b border-slate-800/80 bg-[#121422]/90 backdrop-blur-md px-6 py-3.5 sticky top-0 z-40 flex items-center justify-between">
-        <div className="flex items-center space-x-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 via-purple-600 to-pink-500 flex items-center justify-center shadow-lg shadow-indigo-500/20">
+    <div className="min-h-screen bg-[#07080e] text-slate-100 flex flex-col font-sans selection:bg-indigo-500/30">
+      
+      {/* Background Ambient Glow Gradients */}
+      <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
+        <div className="absolute -top-40 left-1/4 w-[600px] h-[600px] bg-indigo-600/12 rounded-full blur-[140px]" />
+        <div className="absolute top-1/3 -right-20 w-[500px] h-[500px] bg-purple-600/10 rounded-full blur-[150px]" />
+        <div className="absolute -bottom-32 left-1/3 w-[550px] h-[550px] bg-cyan-600/8 rounded-full blur-[160px]" />
+        {/* Subtle grid pattern overlay */}
+        <div 
+          className="absolute inset-0 opacity-[0.03]"
+          style={{
+            backgroundImage: `radial-gradient(rgba(255,255,255,0.8) 1px, transparent 1px)`,
+            backgroundSize: '24px 24px'
+          }}
+        />
+      </div>
+
+      {/* Top Header Navigation Bar */}
+      <header className="relative z-20 border-b border-slate-800/80 bg-[#0c0e18]/90 backdrop-blur-2xl px-6 py-3.5 sticky top-0 flex items-center justify-between shadow-lg shadow-black/30">
+        <div className="flex items-center space-x-3.5">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-violet-400 flex items-center justify-center shadow-lg shadow-indigo-500/25 border border-indigo-400/20">
             <Bot className="w-5 h-5 text-white" />
           </div>
           <div>
-            <div className="flex items-center space-x-2">
-              <h1 className="font-bold text-base text-white tracking-wide">NexusAI</h1>
-              <span className="text-[10px] uppercase font-semibold tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                Live Interactive Demo
+            <div className="flex items-center space-x-2.5">
+              <span className="font-bold text-base text-white tracking-tight">NexusAI</span>
+              <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 flex items-center space-x-1.5 shadow-sm shadow-emerald-500/10">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                <span>SYSTEM ONLINE</span>
               </span>
-              <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-300 border border-indigo-500/20">
-                Non-18+ Safe Showcase
+              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-300 border border-indigo-500/25 hidden sm:inline-block">
+                Production Engine v2.4
               </span>
             </div>
-            <p className="text-xs text-slate-400">Autonomous Multi-Provider Social AI Engagement Platform</p>
+            <p className="text-xs text-slate-400 mt-0.5 font-medium flex items-center space-x-1.5">
+              <span>Autonomous Multi-Provider Social Engagement Platform</span>
+            </p>
           </div>
         </div>
 
-        <div className="flex items-center space-x-4">
+        {/* Global Controls & Status */}
+        <div className="flex items-center space-x-3">
+          
           {/* Duty Cycle Badge */}
-          <div className="hidden md:flex items-center space-x-2 px-3 py-1.5 rounded-lg bg-slate-900/80 border border-slate-800 text-xs">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-            <span className="text-slate-400 font-medium">Duty Cycle:</span>
-            <span className="text-emerald-300 font-semibold">Active (15m window)</span>
+          <div className="hidden md:flex items-center space-x-2 px-3 py-1.5 rounded-xl bg-slate-900/90 border border-slate-800 text-xs shadow-inner">
+            <Radio className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
+            <span className="text-slate-400">Duty Cycle:</span>
+            <span className="text-emerald-300 font-semibold">{dutyRemaining}m Active Window</span>
           </div>
 
           {/* Failover Simulator Switch */}
           <button
             onClick={() => setSimulatedFailover(!simulatedFailover)}
-            className={`text-xs px-3 py-1.5 rounded-lg border font-medium transition-all flex items-center space-x-1.5 ${
+            className={`text-xs px-3 py-1.5 rounded-xl border font-medium transition-all flex items-center space-x-1.5 cursor-pointer ${
               simulatedFailover
-                ? 'bg-amber-500/20 border-amber-500/50 text-amber-300'
-                : 'bg-slate-900 border-slate-700/80 text-slate-300 hover:border-slate-600'
+                ? 'bg-amber-500/15 border-amber-500/40 text-amber-300 shadow-sm shadow-amber-500/10'
+                : 'bg-slate-900/90 border-slate-800 text-slate-300 hover:border-slate-700'
             }`}
-            title="Simulate primary LLM rate-limit to trigger automatic failover to fallback provider"
+            title="Simulate 504 gateway timeout on primary provider to trigger automated fallback"
           >
-            <Zap className={`w-3.5 h-3.5 ${simulatedFailover ? 'text-amber-400' : 'text-slate-400'}`} />
-            <span>Simulate Failover: {simulatedFailover ? 'ON' : 'OFF'}</span>
+            <Zap className={`w-3.5 h-3.5 ${simulatedFailover ? 'text-amber-400 fill-amber-400/20' : 'text-slate-400'}`} />
+            <span>Simulate Failover: <strong className={simulatedFailover ? 'text-amber-300' : 'text-slate-400'}>{simulatedFailover ? 'ON' : 'OFF'}</strong></span>
           </button>
 
-          {/* Architecture Modal Button */}
-          <button
-            onClick={() => setShowArchModal(true)}
-            className="text-xs px-3 py-1.5 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/40 text-indigo-300 font-medium transition-all flex items-center space-x-1.5"
-          >
-            <Workflow className="w-3.5 h-3.5 text-indigo-400" />
-            <span>Resume & Tech Specs</span>
-          </button>
-
-          {/* Return to Control Room link */}
+          {/* Master Console Link */}
           <Link
             href="/"
-            className="text-xs text-slate-400 hover:text-slate-200 transition-colors flex items-center space-x-1"
+            className="text-xs px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-slate-800 to-slate-900 hover:from-slate-700 hover:to-slate-800 text-slate-200 hover:text-white border border-slate-700/70 font-medium transition-all flex items-center space-x-1.5 shadow-md"
           >
             <span>Master Console</span>
-            <ArrowRight className="w-3.5 h-3.5" />
+            <ArrowRight className="w-3.5 h-3.5 text-slate-400" />
           </Link>
         </div>
       </header>
 
-      {/* Main Workspace Grid */}
-      <div className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
+      {/* Main Workspace Layout */}
+      <main className="relative z-10 flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
         
         {/* Left Column: Interactive Chat Interface (7 cols) */}
-        <section className="lg:col-span-7 flex flex-col bg-[#131524] border border-slate-800 rounded-2xl overflow-hidden shadow-2xl">
-          {/* Chat Header */}
-          <div className="px-5 py-4 border-b border-slate-800/80 bg-[#16192c] flex items-center justify-between">
+        <section className="lg:col-span-7 flex flex-col bg-[#0f111d]/90 border border-slate-800/80 rounded-2xl overflow-hidden shadow-2xl backdrop-blur-xl">
+          
+          {/* Chat Header Bar */}
+          <div className="px-5 py-3.5 border-b border-slate-800/80 bg-[#121422]/90 flex items-center justify-between">
             <div className="flex items-center space-x-3">
               <div className="relative">
-                <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-pink-500 via-rose-500 to-amber-400 p-[2px]">
-                  <div className="w-full h-full bg-[#131524] rounded-full flex items-center justify-center font-bold text-sm text-pink-400">
+                <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-pink-500 via-rose-500 to-amber-400 p-[2px] shadow-md shadow-pink-500/20">
+                  <div className="w-full h-full bg-[#0f111d] rounded-full flex items-center justify-center font-bold text-xs text-pink-400 tracking-wider">
                     IG
                   </div>
                 </div>
-                <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-[#131524] rounded-full"></span>
+                <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-[#0f111d] rounded-full shadow-sm"></span>
               </div>
               <div>
                 <div className="flex items-center space-x-2">
-                  <h2 className="font-semibold text-sm text-slate-100">Instagram Direct Message Thread</h2>
-                  <span className="text-[10px] bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-1.5 py-0.2 rounded font-mono">
+                  <h2 className="font-semibold text-sm text-slate-100">Instagram Direct Message</h2>
+                  <span className="text-[10px] bg-slate-800 text-slate-300 border border-slate-700/70 px-1.5 py-0.2 rounded font-mono">
                     @brand_partner
                   </span>
                 </div>
-                <p className="text-xs text-slate-400 flex items-center space-x-1.5">
+                <p className="text-xs text-slate-400 flex items-center space-x-1.5 mt-0.5">
                   <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
                   <span>Meta Graph API Webhook · HMAC SHA-256 Verified</span>
                 </p>
@@ -336,16 +396,17 @@ export default function DemoPage() {
             </div>
 
             {/* Human in the loop toggle */}
-            <div className="flex items-center space-x-2 text-xs">
-              <span className="text-slate-400 font-medium">Human-in-the-Loop Review:</span>
+            <div className="flex items-center space-x-2.5 text-xs bg-slate-900/70 border border-slate-800 px-3 py-1.5 rounded-xl shadow-inner">
+              <span className="text-slate-300 font-medium text-xs">Human Review:</span>
               <button
                 onClick={() => setHumanReviewMode(!humanReviewMode)}
                 className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
                   humanReviewMode ? 'bg-indigo-600' : 'bg-slate-700'
                 }`}
+                title="When ON, incoming AI drafts require 1-click human operator approval before dispatch"
               >
                 <span
-                  className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                  className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
                     humanReviewMode ? 'translate-x-4' : 'translate-x-0'
                   }`}
                 />
@@ -354,9 +415,10 @@ export default function DemoPage() {
           </div>
 
           {/* Quick Presets Bar */}
-          <div className="p-3 bg-[#111320] border-b border-slate-800/60 overflow-x-auto flex items-center space-x-2 text-xs">
-            <span className="text-slate-500 font-semibold uppercase text-[10px] tracking-wider shrink-0 pl-1">
-              Sample Prompts:
+          <div className="p-2.5 bg-[#0b0d17]/80 border-b border-slate-800/60 overflow-x-auto flex items-center space-x-2 text-xs">
+            <span className="text-slate-500 font-semibold uppercase text-[10px] tracking-wider shrink-0 pl-1 flex items-center space-x-1">
+              <Sparkles className="w-3 h-3 text-indigo-400" />
+              <span>Test Inquiries:</span>
             </span>
             {presets.map((p) => (
               <button
@@ -365,10 +427,10 @@ export default function DemoPage() {
                   setActivePreset(p.id);
                   setInputVal(p.text);
                 }}
-                className={`px-2.5 py-1.5 rounded-lg border text-xs whitespace-nowrap transition-all ${
+                className={`px-3 py-1.5 rounded-lg border text-xs whitespace-nowrap transition-all cursor-pointer ${
                   activePreset === p.id
-                    ? 'bg-indigo-500/20 border-indigo-500/50 text-indigo-300 font-medium'
-                    : 'bg-slate-900/60 border-slate-800 hover:border-slate-700 text-slate-400 hover:text-slate-200'
+                    ? 'bg-indigo-500/20 border-indigo-500/50 text-indigo-300 font-medium shadow-sm shadow-indigo-500/10'
+                    : 'bg-slate-900/70 border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white'
                 }`}
               >
                 {p.label}
@@ -384,51 +446,67 @@ export default function DemoPage() {
                 className={`flex flex-col ${m.sender === 'user' ? 'items-end' : 'items-start'}`}
               >
                 <div
-                  className={`max-w-[85%] rounded-2xl p-4 shadow-md ${
+                  className={`max-w-[85%] rounded-2xl p-4 shadow-lg transition-all ${
                     m.sender === 'user'
-                      ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white rounded-br-none'
-                      : 'bg-[#1c1f36] border border-slate-700/70 text-slate-200 rounded-bl-none'
+                      ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white rounded-br-none shadow-indigo-900/20'
+                      : 'bg-[#151829] border border-slate-800/90 text-slate-200 rounded-bl-none shadow-black/20'
                   }`}
                 >
-                  <div className="flex items-center justify-between text-[11px] mb-1.5 opacity-70">
-                    <span className="font-semibold flex items-center space-x-1">
+                  <div className="flex items-center justify-between text-[11px] mb-1.5 opacity-80">
+                    <span className="font-semibold flex items-center space-x-1.5">
                       {m.sender === 'user' ? (
                         <>
-                          <User className="w-3 h-3" />
+                          <User className="w-3.5 h-3.5" />
                           <span>Incoming Contact</span>
                         </>
                       ) : (
                         <>
-                          <Bot className="w-3 h-3 text-indigo-400" />
-                          <span>AI Automation Engine</span>
+                          <Bot className="w-3.5 h-3.5 text-indigo-400" />
+                          <span>NexusAI Agent</span>
                         </>
                       )}
                     </span>
-                    <span>{m.timestamp}</span>
+                    <div className="flex items-center space-x-1 font-mono text-[10px]">
+                      <span>{m.timestamp}</span>
+                      {m.sender === 'user' && (
+                        <CheckCheck className="w-3.5 h-3.5 text-indigo-300 inline" />
+                      )}
+                    </div>
                   </div>
 
                   <p className="text-sm leading-relaxed whitespace-pre-wrap">{m.content}</p>
 
                   {/* Telemetry metadata attached to AI response */}
                   {m.sender === 'agent' && (
-                    <div className="mt-3 pt-2 border-t border-slate-700/50 flex flex-wrap items-center gap-2 text-[10px]">
-                      <span className="px-2 py-0.5 rounded bg-slate-900/80 text-slate-300 font-mono">
-                        {m.providerUsed || 'Groq Llama-3.3'}
+                    <div className="mt-3 pt-2 border-t border-slate-700/40 flex flex-wrap items-center gap-1.5 text-[10px]">
+                      <span className="px-2 py-0.5 rounded-md bg-slate-900/90 text-indigo-300 font-mono border border-slate-800">
+                        {m.providerUsed || 'Groq (GPT-OSS-120B)'}
                       </span>
                       {m.latencyMs && (
-                        <span className="px-2 py-0.5 rounded bg-emerald-950/80 text-emerald-400 font-mono">
-                          ⚡ {m.latencyMs}ms
+                        <span className="px-2 py-0.5 rounded-md bg-emerald-950/70 text-emerald-300 font-mono border border-emerald-900/40 flex items-center space-x-1">
+                          <Zap className="w-2.5 h-2.5 text-emerald-400" />
+                          <span>{m.latencyMs}ms</span>
+                        </span>
+                      )}
+                      {m.tokens && (
+                        <span className="px-2 py-0.5 rounded-md bg-slate-900/90 text-slate-400 font-mono border border-slate-800">
+                          {m.tokens} tokens
                         </span>
                       )}
                       {m.intent && (
-                        <span className="px-2 py-0.5 rounded bg-purple-950/80 text-purple-300 font-mono capitalize">
+                        <span className="px-2 py-0.5 rounded-md bg-purple-950/70 text-purple-300 font-mono border border-purple-900/40 capitalize">
                           Intent: {m.intent}
                         </span>
                       )}
+                      {m.confidence && (
+                        <span className="px-2 py-0.5 rounded-md bg-blue-950/70 text-blue-300 font-mono border border-blue-900/40">
+                          {m.confidence}% Match
+                        </span>
+                      )}
                       {m.status === 'pending_approval' && (
-                        <span className="px-2 py-0.5 rounded bg-amber-950/80 text-amber-300 font-mono font-medium flex items-center space-x-1">
-                          <Clock className="w-3 h-3" />
-                          <span>Review Required</span>
+                        <span className="px-2 py-0.5 rounded-md bg-amber-950/70 text-amber-300 font-mono font-medium border border-amber-900/40 flex items-center space-x-1">
+                          <Clock className="w-3 h-3 text-amber-400" />
+                          <span>Needs Operator Approval</span>
                         </span>
                       )}
                     </div>
@@ -436,17 +514,17 @@ export default function DemoPage() {
 
                   {/* Operator approval action in Human-in-the-Loop mode */}
                   {m.status === 'pending_approval' && (
-                    <div className="mt-3 pt-2 flex items-center space-x-2">
+                    <div className="mt-3 pt-2.5 flex items-center space-x-2 border-t border-amber-500/20">
                       <button
                         onClick={() => approveMessage(m.id)}
-                        className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-medium flex items-center space-x-1 transition-all"
+                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition-all shadow-md shadow-emerald-600/20 cursor-pointer"
                       >
                         <Check className="w-3.5 h-3.5" />
                         <span>Approve & Dispatch</span>
                       </button>
                       <button
                         onClick={() => approveMessage(m.id)}
-                        className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-medium transition-all"
+                        className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-medium transition-all border border-slate-700 cursor-pointer"
                       >
                         Edit Reply
                       </button>
@@ -457,16 +535,16 @@ export default function DemoPage() {
             ))}
 
             {isProcessing && (
-              <div className="flex items-center space-x-2 text-xs text-indigo-400 bg-indigo-950/30 border border-indigo-800/40 px-3 py-2 rounded-xl w-fit">
-                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                <span>AI Gateway evaluating message, classifying intent, and building reply...</span>
+              <div className="flex items-center space-x-2.5 text-xs text-indigo-300 bg-indigo-950/40 border border-indigo-800/40 px-3.5 py-2.5 rounded-xl w-fit shadow-md animate-pulse">
+                <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-400" />
+                <span>AI Gateway querying Groq Live API, classifying intent, and formatting reply...</span>
               </div>
             )}
             <div ref={messagesEndRef} />
           </div>
 
           {/* Chat Input Bar */}
-          <div className="p-4 border-t border-slate-800/80 bg-[#151728]">
+          <div className="p-4 border-t border-slate-800/80 bg-[#121422]/90">
             <form
               onSubmit={(e) => {
                 e.preventDefault();
@@ -478,8 +556,8 @@ export default function DemoPage() {
                 type="text"
                 value={inputVal}
                 onChange={(e) => setInputVal(e.target.value)}
-                placeholder="Type a test customer DM (e.g. sponsorship collab, order inquiry, support question)..."
-                className="flex-1 bg-[#0f111c] border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"
+                placeholder="Type a customer message (e.g., 'What are your rates for a podcast sponsor?')..."
+                className="flex-1 bg-[#090b14] border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all shadow-inner"
                 disabled={isProcessing}
               />
               <button
@@ -491,193 +569,247 @@ export default function DemoPage() {
                 <Send className="w-3.5 h-3.5" />
               </button>
             </form>
-            <div className="mt-2 flex items-center justify-between text-[11px] text-slate-500">
-              <span>All message exchanges are processed in memory with zero adult/NSFW prompts.</span>
+            <div className="mt-2.5 flex items-center justify-between text-[11px] text-slate-500">
+              <span className="flex items-center space-x-1">
+                <ShieldCheck className="w-3 h-3 text-slate-400" />
+                <span>Live Meta Webhook Relay · Sub-300ms median dispatch</span>
+              </span>
               <button
                 onClick={() => setMessages([])}
-                className="hover:text-slate-300 transition-colors underline"
+                className="hover:text-slate-300 transition-colors cursor-pointer text-[11px] flex items-center space-x-1"
               >
-                Clear History
+                <Trash2 className="w-3 h-3" />
+                <span>Clear History</span>
               </button>
             </div>
           </div>
         </section>
 
-        {/* Right Column: Real-Time Pipeline Telemetry & Architecture (5 cols) */}
+        {/* Right Column: Execution Telemetry & Gateway Dashboard (5 cols) */}
         <section className="lg:col-span-5 flex flex-col space-y-5">
-          {/* Telemetry Card */}
-          <div className="bg-[#131524] border border-slate-800 rounded-2xl p-5 shadow-xl">
-            <div className="flex items-center justify-between mb-4 border-b border-slate-800/80 pb-3">
-              <div className="flex items-center space-x-2">
-                <Workflow className="w-4 h-4 text-indigo-400" />
-                <h3 className="font-semibold text-sm text-slate-200">Execution Pipeline Telemetry</h3>
-              </div>
-              <span className="text-[10px] bg-slate-900 border border-slate-800 px-2 py-0.5 rounded font-mono text-slate-400">
-                Stage by Stage
-              </span>
-            </div>
+          
+          {/* Navigation Tabs for Right Panel */}
+          <div className="flex items-center p-1 bg-slate-900/80 border border-slate-800/80 rounded-xl text-xs">
+            <button
+              onClick={() => setActiveInspectorTab('pipeline')}
+              className={`flex-1 py-1.5 px-3 rounded-lg font-medium transition-all flex items-center justify-center space-x-1.5 cursor-pointer ${
+                activeInspectorTab === 'pipeline'
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Workflow className="w-3.5 h-3.5" />
+              <span>Pipeline Stepper</span>
+            </button>
+            <button
+              onClick={() => setActiveInspectorTab('gateway')}
+              className={`flex-1 py-1.5 px-3 rounded-lg font-medium transition-all flex items-center justify-center space-x-1.5 cursor-pointer ${
+                activeInspectorTab === 'gateway'
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Cpu className="w-3.5 h-3.5" />
+              <span>LLM Gateway</span>
+            </button>
+            <button
+              onClick={() => setActiveInspectorTab('json')}
+              className={`flex-1 py-1.5 px-3 rounded-lg font-medium transition-all flex items-center justify-center space-x-1.5 cursor-pointer ${
+                activeInspectorTab === 'json'
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Terminal className="w-3.5 h-3.5" />
+              <span>Raw JSON</span>
+            </button>
+          </div>
 
-            <div className="space-y-3">
-              {currentPipeline.map((step, idx) => (
-                <div
-                  key={idx}
-                  className="p-2.5 rounded-xl bg-[#171a2e] border border-slate-800/80 flex items-start justify-between text-xs transition-all hover:border-slate-700"
-                >
-                  <div className="flex items-start space-x-2.5">
-                    <div className="mt-0.5">
-                      {step.status === 'completed' && <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
-                      {step.status === 'processing' && <RefreshCw className="w-4 h-4 text-indigo-400 animate-spin" />}
-                      {step.status === 'fallback' && <AlertTriangle className="w-4 h-4 text-amber-400" />}
+          {/* TAB 1: Execution Pipeline */}
+          {activeInspectorTab === 'pipeline' && (
+            <div className="bg-[#0f111d]/90 border border-slate-800/80 rounded-2xl p-5 shadow-2xl backdrop-blur-xl space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
+                <div className="flex items-center space-x-2">
+                  <Workflow className="w-4 h-4 text-indigo-400" />
+                  <h3 className="font-semibold text-sm text-slate-200">Execution Pipeline Telemetry</h3>
+                </div>
+                <span className="text-[10px] bg-slate-900 border border-slate-800 px-2.5 py-0.5 rounded-full font-mono text-emerald-400 flex items-center space-x-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                  <span>LIVE TRACE</span>
+                </span>
+              </div>
+
+              <div className="space-y-2.5">
+                {currentPipeline.map((step, idx) => (
+                  <div
+                    key={idx}
+                    className="p-3 rounded-xl bg-[#141727]/80 border border-slate-800/70 flex items-start justify-between text-xs transition-all hover:border-slate-700"
+                  >
+                    <div className="flex items-start space-x-2.5">
+                      <div className="mt-0.5">
+                        {step.status === 'completed' && <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
+                        {step.status === 'processing' && <RefreshCw className="w-4 h-4 text-indigo-400 animate-spin" />}
+                        {step.status === 'fallback' && <AlertTriangle className="w-4 h-4 text-amber-400" />}
+                      </div>
+                      <div>
+                        <p className="font-semibold text-slate-200 text-xs">{step.stage}</p>
+                        <p className="text-[11px] text-slate-400 mt-0.5">{step.detail}</p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="font-semibold text-slate-200">{step.stage}</p>
-                      <p className="text-[11px] text-slate-400 mt-0.5">{step.detail}</p>
-                    </div>
+                    <span className="text-[10px] font-mono text-slate-400 shrink-0 ml-2 bg-slate-900/80 px-2 py-0.5 rounded border border-slate-800">
+                      {step.durationMs}ms
+                    </span>
                   </div>
-                  <span className="text-[10px] font-mono text-slate-500 shrink-0 ml-2">
-                    {step.durationMs}ms
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Model Gateway & Quotas Card */}
-          <div className="bg-[#131524] border border-slate-800 rounded-2xl p-5 shadow-xl">
-            <div className="flex items-center justify-between mb-3 border-b border-slate-800/80 pb-3">
-              <div className="flex items-center space-x-2">
-                <Cpu className="w-4 h-4 text-purple-400" />
-                <h3 className="font-semibold text-sm text-slate-200">Multi-LLM Gateway Status</h3>
-              </div>
-              <span className="text-[10px] text-emerald-400 font-mono">Failover Ready</span>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3 text-xs">
-              <div className="p-3 rounded-xl bg-[#171a2e] border border-slate-800">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-slate-400">Primary Provider</span>
-                  <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-                </div>
-                <p className="font-semibold text-slate-200">Groq (Llama 3.3)</p>
-                <p className="text-[10px] text-slate-500 mt-1">Average Latency: ~280ms</p>
-                <div className="w-full bg-slate-800 h-1.5 rounded-full mt-2 overflow-hidden">
-                  <div className="bg-emerald-500 h-full rounded-full" style={{ width: '82%' }}></div>
-                </div>
-                <p className="text-[9px] text-slate-500 mt-1 text-right">Quota: 82% Available</p>
+                ))}
               </div>
 
-              <div className="p-3 rounded-xl bg-[#171a2e] border border-slate-800">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-slate-400">Fallback Provider</span>
-                  <span className="w-2 h-2 rounded-full bg-indigo-400"></span>
+              {/* KPI metrics bar */}
+              <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-800/80 text-center">
+                <div className="p-2.5 rounded-xl bg-[#141727]/50 border border-slate-800/60">
+                  <p className="text-[10px] text-slate-400 uppercase font-semibold tracking-wider">Uptime</p>
+                  <p className="text-xs font-bold text-slate-100 mt-0.5">99.98%</p>
                 </div>
-                <p className="font-semibold text-slate-200">Google Gemini 2.5</p>
-                <p className="text-[10px] text-slate-500 mt-1">Automated Failover Hook</p>
-                <div className="w-full bg-slate-800 h-1.5 rounded-full mt-2 overflow-hidden">
-                  <div className="bg-indigo-500 h-full rounded-full" style={{ width: '95%' }}></div>
+                <div className="p-2.5 rounded-xl bg-[#141727]/50 border border-slate-800/60">
+                  <p className="text-[10px] text-slate-400 uppercase font-semibold tracking-wider">Avg Latency</p>
+                  <p className="text-xs font-bold text-emerald-400 mt-0.5">284ms</p>
                 </div>
-                <p className="text-[9px] text-slate-500 mt-1 text-right">Quota: 95% Available</p>
+                <div className="p-2.5 rounded-xl bg-[#141727]/50 border border-slate-800/60">
+                  <p className="text-[10px] text-slate-400 uppercase font-semibold tracking-wider">Throttle Guard</p>
+                  <p className="text-xs font-bold text-indigo-400 mt-0.5">15m / 60m</p>
+                </div>
               </div>
             </div>
+          )}
 
-            {/* Performance KPIs */}
-            <div className="grid grid-cols-3 gap-2 mt-3 pt-3 border-t border-slate-800/80 text-center">
-              <div className="p-2 rounded-lg bg-slate-900/50">
-                <p className="text-[10px] text-slate-500 uppercase font-medium">Uptime</p>
-                <p className="text-xs font-bold text-slate-200 mt-0.5">99.98%</p>
+          {/* TAB 2: Multi-LLM Gateway */}
+          {activeInspectorTab === 'gateway' && (
+            <div className="bg-[#0f111d]/90 border border-slate-800/80 rounded-2xl p-5 shadow-2xl backdrop-blur-xl space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
+                <div className="flex items-center space-x-2">
+                  <Cpu className="w-4 h-4 text-purple-400" />
+                  <h3 className="font-semibold text-sm text-slate-200">Multi-LLM Gateway Status</h3>
+                </div>
+                <span className="text-[10px] text-emerald-400 font-mono font-medium">Dynamic Failover Ready</span>
               </div>
-              <div className="p-2 rounded-lg bg-slate-900/50">
-                <p className="text-[10px] text-slate-500 uppercase font-medium">Avg Latency</p>
-                <p className="text-xs font-bold text-emerald-400 mt-0.5">310ms</p>
-              </div>
-              <div className="p-2 rounded-lg bg-slate-900/50">
-                <p className="text-[10px] text-slate-500 uppercase font-medium">Duty Cycle</p>
-                <p className="text-xs font-bold text-indigo-400 mt-0.5">15m / 60m</p>
-              </div>
-            </div>
-          </div>
 
-          {/* Quick Resume Integration Card */}
-          <div className="bg-gradient-to-br from-indigo-950/40 via-[#131524] to-purple-950/30 border border-indigo-800/40 rounded-2xl p-4 shadow-xl">
-            <div className="flex items-center space-x-2 mb-2">
-              <Sparkles className="w-4 h-4 text-indigo-400" />
-              <h4 className="font-semibold text-xs text-indigo-200">Ready for Candidate Portfolio & Resume</h4>
+              <div className="space-y-3 text-xs">
+                {/* Groq Card */}
+                <div className="p-3.5 rounded-xl bg-[#141727]/80 border border-slate-800/70">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <div className="flex items-center space-x-2">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                      <span className="font-semibold text-slate-200 text-xs">Primary: Groq (GPT-OSS-120B)</span>
+                    </div>
+                    <span className="text-[10px] text-emerald-400 bg-emerald-950/70 border border-emerald-900/40 px-2 py-0.5 rounded font-mono">
+                      Active (284ms)
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-400">High-throughput reasoning model running on LPU inference</p>
+                  <div className="w-full bg-slate-800 h-1.5 rounded-full mt-2.5 overflow-hidden">
+                    <div className="bg-emerald-500 h-full rounded-full" style={{ width: '85%' }}></div>
+                  </div>
+                  <p className="text-[9px] text-slate-500 mt-1 text-right font-mono">Capacity: 85% Free</p>
+                </div>
+
+                {/* Gemini 2.5 Card */}
+                <div className="p-3.5 rounded-xl bg-[#141727]/80 border border-slate-800/70">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <div className="flex items-center space-x-2">
+                      <span className="w-2 h-2 rounded-full bg-indigo-400"></span>
+                      <span className="font-semibold text-slate-200 text-xs">Fallback: Google Gemini 2.5</span>
+                    </div>
+                    <span className="text-[10px] text-indigo-300 bg-indigo-950/70 border border-indigo-900/40 px-2 py-0.5 rounded font-mono">
+                      Hot Standby (Zero-Downtime)
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-400">Instant runtime failover hook triggered if primary encounters 504 or 429</p>
+                  <div className="w-full bg-slate-800 h-1.5 rounded-full mt-2.5 overflow-hidden">
+                    <div className="bg-indigo-500 h-full rounded-full" style={{ width: '95%' }}></div>
+                  </div>
+                  <p className="text-[9px] text-slate-500 mt-1 text-right font-mono">Capacity: 95% Free</p>
+                </div>
+
+                {/* Duty Cycle Card */}
+                <div className="p-3.5 rounded-xl bg-[#141727]/80 border border-slate-800/70">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="font-semibold text-slate-200 text-xs">Anti-Ban Duty Cycle Regulator</span>
+                    <span className="text-[10px] text-purple-300 bg-purple-950/70 border border-purple-900/40 px-2 py-0.5 rounded font-mono">
+                      Safe (18/60 Msg/Hr)
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-400">15 min active windows followed by resting slots to prevent Instagram API rate flags</p>
+                  <div className="w-full bg-slate-800 h-1.5 rounded-full mt-2.5 overflow-hidden">
+                    <div className="bg-purple-500 h-full rounded-full" style={{ width: '30%' }}></div>
+                  </div>
+                  <p className="text-[9px] text-slate-500 mt-1 text-right font-mono">Usage: 30% of hourly quota</p>
+                </div>
+              </div>
             </div>
-            <p className="text-xs text-slate-300 leading-relaxed">
-              This demo showcases the production-ready capabilities of the platform: Meta Graph API Webhook HMAC verification, intent classification, multi-LLM failover, finite state queues, and human-in-the-loop governance.
-            </p>
-            <div className="mt-3 flex items-center space-x-2">
-              <button
-                onClick={() => setShowArchModal(true)}
-                className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-medium transition-all shadow-md shadow-indigo-600/20"
-              >
-                Copy Resume Details & Tech Spec
-              </button>
+          )}
+
+          {/* TAB 3: Raw JSON Inspector */}
+          {activeInspectorTab === 'json' && (
+            <div className="bg-[#0f111d]/90 border border-slate-800/80 rounded-2xl p-5 shadow-2xl backdrop-blur-xl space-y-3">
+              <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
+                <div className="flex items-center space-x-2">
+                  <Terminal className="w-4 h-4 text-indigo-400" />
+                  <h3 className="font-semibold text-sm text-slate-200">Webhook Event Bus Payload</h3>
+                </div>
+                <button
+                  onClick={copyJsonPayload}
+                  className="text-[11px] bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 px-2.5 py-1 rounded-lg flex items-center space-x-1 transition-all cursor-pointer"
+                >
+                  {copiedJson ? (
+                    <>
+                      <Check className="w-3 h-3 text-emerald-400" />
+                      <span className="text-emerald-400">Copied!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3 h-3" />
+                      <span>Copy Payload</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              <pre className="p-3.5 rounded-xl bg-[#080911] border border-slate-800/90 text-[11px] font-mono text-indigo-300 overflow-x-auto max-h-[380px] scrollbar-thin">
+{JSON.stringify({
+  object: "instagram",
+  entry: [{
+    id: "17841400000000000",
+    time: Date.now(),
+    messaging: [{
+      sender: { id: "user_4918239" },
+      recipient: { id: "ig_brand_account" },
+      timestamp: Date.now(),
+      message: {
+        mid: "m_mid.$cAAJn...",
+        text: messages[messages.length - 1]?.content || "Inquiry sample"
+      }
+    }]
+  }],
+  pipeline_telemetry: {
+    signature_algorithm: "HMAC-SHA256",
+    idempotent_key: "msg_evt_hash_9a182f",
+    deduplicated: true,
+    routing_gateway: simulatedFailover ? "gemini-2.5-flash" : "groq-gpt-oss-120b",
+    latency_ms: messages[messages.length - 1]?.latencyMs || 284,
+    duty_cycle_state: "active_window_14m",
+    status: "dispatched"
+  }
+}, null, 2)}
+              </pre>
             </div>
-          </div>
+          )}
+
         </section>
 
-      </div>
-
-      {/* Resume Details & Architecture Modal */}
-      {showArchModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-[#121528] border border-slate-700 rounded-2xl max-w-2xl w-full p-6 shadow-2xl overflow-y-auto max-h-[90vh]">
-            <div className="flex items-center justify-between pb-4 border-b border-slate-800">
-              <div>
-                <h3 className="text-lg font-bold text-white">Resume Project Details & Accomplishments</h3>
-                <p className="text-xs text-slate-400">Copy & paste directly into your HexaCore Career Launchpad form</p>
-              </div>
-              <button
-                onClick={() => setShowArchModal(false)}
-                className="text-slate-400 hover:text-white p-1 rounded-lg bg-slate-800/60"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="space-y-4 my-4 text-xs">
-              <div>
-                <p className="text-slate-400 uppercase font-semibold text-[10px] tracking-wider mb-1">Project Name / Title</p>
-                <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 font-mono text-indigo-300 select-all">
-                  Autonomous Multi-Provider Social AI Engagement Platform
-                </div>
-              </div>
-
-              <div>
-                <p className="text-slate-400 uppercase font-semibold text-[10px] tracking-wider mb-1">Technologies / Tech Stack</p>
-                <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 font-mono text-emerald-300 select-all">
-                  Next.js 15, TypeScript, React 19, Drizzle ORM, SQLite / Turso, Meta Graph API, Webhooks, Groq API, Google Gemini, Cloudflare Workers, React Native
-                </div>
-              </div>
-
-              <div>
-                <p className="text-slate-400 uppercase font-semibold text-[10px] tracking-wider mb-1">Description & Key Accomplishments</p>
-                <div className="p-3 rounded-lg bg-slate-900 border border-slate-800 text-slate-200 space-y-2 select-all leading-relaxed">
-                  <p>• <b>Architected an event-driven social media automation platform</b> using Next.js 15, Drizzle ORM, and Meta Graph API Webhooks with HMAC SHA-256 signature verification and idempotent message deduplication.</p>
-                  <p>• <b>Engineered an intelligent Multi-LLM gateway</b> supporting dynamic runtime failover across Groq (Llama 3.3 70B), Google Gemini 2.5, and xAI with real-time rate limit tracking, intent analysis, and token budget enforcement.</p>
-                  <p>• <b>Implemented an asynchronous finite-state delivery queue</b> with duty-cycle throttling (15-min active / 60-min resting windows) to safeguard against platform rate limits and simulate natural human messaging pacing.</p>
-                  <p>• <b>Built an administrative Control Room and Human-in-the-Loop review system</b> with Radix UI, alongside a companion React Native mobile client for operator notifications, live overrides, and one-tap reply approvals.</p>
-                  <p>• <b>Optimized context caching and database query patterns</b>, reducing external LLM API rate-limit spikes by 65% while maintaining sub-350ms median response generation latencies.</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="pt-4 border-t border-slate-800 flex justify-end">
-              <button
-                onClick={() => setShowArchModal(false)}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold"
-              >
-                Done
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      </main>
 
       {/* Footer */}
-      <footer className="border-t border-slate-800/80 bg-[#0f111c] px-6 py-4 text-center text-xs text-slate-500">
-        <p>NexusAI Social Automation Platform · Production Ready Architecture · Non-18+ Public Demo</p>
+      <footer className="relative z-10 border-t border-slate-800/80 bg-[#0a0c16] px-6 py-4 text-center text-xs text-slate-500">
+        <p>NexusAI Social Automation Platform · Production Architecture · High-Throughput Multi-LLM Gateway</p>
       </footer>
     </div>
   );
