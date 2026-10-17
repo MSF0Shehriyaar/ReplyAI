@@ -1,63 +1,109 @@
-﻿# Render Deployment & Keep-Alive Guide
+# Render Deployment & Cloudflare DNS Tunnel Guide
 
-This guide explains how to deploy Nina to Render using your existing Turso Database.
-
----
-
-## 1. Blueprint Configuration
-A \ender.yaml\ file has been created in both the root folder and the \web\ folder. When you connect your GitHub repo, Render will automatically detect this Blueprint.
+This guide explains how to run **ReplyAI** on **Render** as your main application host, while using **Cloudflare** as the edge proxy/tunnel for your custom domain `automation.ninakurainservices.in`.
 
 ---
 
-## 2. Environment Variables to Set on Render
+## Architecture Overview
 
-Add these in your Render Web Service dashboard under **Environment**:
+```
+Visitor / Instagram Webhooks
+             │
+             ▼
+Cloudflare Edge Proxy (Tunnel / DNS CNAME)
+  • Domain: automation.ninakurainservices.in
+  • Orange Cloud: Proxied (DDoS protection, SSL termination)
+             │
+             ▼
+Render Web Service (Main Node.js Server)
+  • Host: https://replyai.onrender.com (or your Render service URL)
+  • Runtime: Node 22 (Full Next.js server runtime)
+  • Database: Turso SQLite Cloud
+```
 
-| Variable | Value | Notes |
+---
+
+## Step 1: Deploy on Render
+
+1. Log in to [dashboard.render.com](https://dashboard.render.com).
+2. Click **New +** ➔ **Web Service** (or **Blueprint**).
+3. Connect your GitHub repository:
+   - `https://github.com/MSF0Shehriyaar/ReplyAI`
+4. If using manual Web Service creation:
+   - **Name**: `replyai`
+   - **Region**: Singapore (or closest to your users)
+   - **Branch**: `main`
+   - **Root Directory**: `web`
+   - **Runtime**: `Node`
+   - **Build Command**: `pnpm install && pnpm run build`
+   - **Start Command**: `pnpm run start`
+   - **Plan**: Free
+
+---
+
+## Step 2: Set Environment Variables on Render
+
+In your Render dashboard under **Environment**, add the following variables:
+
+| Variable | Value / Source | Description |
 | :--- | :--- | :--- |
-| \TURSO_DATABASE_URL\ | \libsql://nina-db-nina-kurain.aws-ap-south-1.turso.io\ | Your existing Turso DB |
-| \TURSO_AUTH_TOKEN\ | \your_turso_auth_token\ | From your Turso dashboard |
-| \CREDENTIALS_KEY\ | \your_64_char_key\ | From your current .env |
-| \NODE_VERSION\ | \22\ | Ensures Node 22 runtime |
-| \NODE_OPTIONS\ | \--max-old-space-size=450\ | Prevents build memory spikes |
+| `NODE_VERSION` | `22` | Node runtime version |
+| `NODE_OPTIONS` | `--max-old-space-size=450` | Prevents build memory spikes |
+| `NEXT_TELEMETRY_DISABLED` | `1` | Disables telemetry |
+| `TURSO_DATABASE_URL` | `libsql://nina-db-nina-kurain.aws-ap-south-1.turso.io` | Your Turso DB URL |
+| `TURSO_AUTH_TOKEN` | *(From your Turso Dashboard / .env)* | Database auth token |
+| `CREDENTIALS_KEY` | *(From your .env)* | 64-character encryption key |
+| `NEXT_PUBLIC_APP_URL` | `https://automation.ninakurainservices.in` | Custom domain URL |
 
 ---
 
-## 3. The 1-Line Cloudflare Switch (When Ready to Deploy)
+## Step 3: Add Custom Domain in Render
 
-Right now, your Cloudflare configuration is completely untouched so you can continue using it.
-
-When you are ready to deploy to Render:
-1. In \web/lib/server.ts\ (line 6) and \web/db/index.ts\ (line 1), change:
-   \\\	s
-   // FROM:
-   import { env } from 'cloudflare:workers';
-
-   // TO:
-   const env = (globalThis as any).__CLOUDFLARE_ENV__ || (typeof process !== 'undefined' ? process.env : {}) || {};
-   \\\
-2. In \web/package.json\, make sure your build & start scripts run Next.js:
-   \\\json
-   "scripts": {
-     "dev": "next dev",
-     "build": "next build",
-     "start": "next start"
-   }
-   \\\
+1. In your Render Web Service dashboard, go to **Settings** ➔ **Custom Domains**.
+2. Click **Add Custom Domain** and enter:
+   ```
+   automation.ninakurainservices.in
+   ```
+3. Render will display instructions to create a CNAME record pointing to:
+   ```
+   replyai.onrender.com
+   ```
+   *(or your specific Render service subdomain)*
 
 ---
 
-## 4. Setting up the 24/7 Keep-Alive & Queue Trigger
+## Step 4: Configure Cloudflare as the Tunnel / Proxy
 
-To keep Render awake 24/7 and run scheduled Instagram replies:
-1. Go to [cron-job.org](https://cron-job.org) (Free).
-2. Create a new Cron Job:
-   - **URL:** \https://<your-render-subdomain>.onrender.com/api/process\
-   - **Method:** \POST\
-   - **Schedule:** Every 1 minute or 2 minutes
-   - **Headers:**
-     - \x-nina-client\: \1\
-     - \origin\: \https://<your-render-subdomain>.onrender.com\
-   - **Body:** \{}\
+1. Open your [Cloudflare Dashboard](https://dash.cloudflare.com) and select the `ninakurainservices.in` zone.
+2. If `automation.ninakurainservices.in` is currently attached to a Cloudflare Worker:
+   - Go to **Workers & Pages** ➔ select your worker (`nina-automation`) ➔ **Settings** ➔ **Domains & Routes**.
+   - Remove or detach `automation.ninakurainservices.in` from the worker custom domains so DNS can route directly to Render.
+3. Go to **DNS** ➔ **Records**:
+   - Click **Add record** (or edit existing `automation` record):
+     - **Type**: `CNAME`
+     - **Name**: `automation`
+     - **Target**: `<your-service-name>.onrender.com` (from Step 3)
+     - **Proxy status**: **Proxied (Orange Cloud)** ☁️ *(This acts as the secure tunnel and CDN)*
+     - **TTL**: `Auto`
+4. Go to **SSL/TLS** in Cloudflare:
+   - Ensure encryption mode is set to **Full** or **Full (strict)** so Cloudflare can securely communicate with Render's SSL certificate.
 
-This ping keeps your single free service running non-stop without sleeping and processes all pending Instagram queue jobs.
+---
+
+## Step 5: 24/7 Keep-Alive & Background Queue Processing
+
+Since Render Free tier spins down after 15 minutes of inactivity, ReplyAI includes two built-in mechanisms:
+
+1. **Automatic Self-Ping (`web/instrumentation.ts`)**:
+   - The server automatically pings itself every 10 minutes to stay awake and processes pending queue jobs every 30 seconds.
+2. **External Free Cron Ping (Recommended for 100% Reliability)**:
+   - Go to [cron-job.org](https://cron-job.org) (Free).
+   - Create a recurring job every **2 minutes**:
+     - **URL**: `https://automation.ninakurainservices.in/api/process`
+     - **Method**: `POST`
+     - **Headers**:
+       - `x-nina-client`: `1`
+       - `origin`: `https://automation.ninakurainservices.in`
+     - **Body**: `{}`
+
+This guarantees 24/7 non-stop execution, instant webhook handling, and real-time social engagement.

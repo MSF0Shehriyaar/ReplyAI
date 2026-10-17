@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: nina-automation
+    name: replyai
     runtime: node
     plan: free
     region: singapore
@@ -21,3 +21,7 @@ services:
         sync: false
       - key: CREDENTIALS_KEY
         sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: NEXT_PUBLIC_APP_URL
+        value: https://automation.ninakurainservices.in
