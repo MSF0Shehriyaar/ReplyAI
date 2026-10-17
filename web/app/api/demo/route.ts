@@ -44,7 +44,7 @@ export async function POST(request: Request) {
       groqKey = GROQ_FALLBACK_KEY || null;
     }
 
-    const systemPrompt = `You are NexusAI, an intelligent, articulate, and friendly AI engagement assistant for social platforms.
+    const systemPrompt = `You are ReplyAI, an intelligent, articulate, and friendly AI engagement assistant for social platforms.
 Respond to the user naturally, warmly, and concisely (1 to 2 sentences, under 45 words).
 Be engaging, polite, and completely safe for work. Avoid robotic clichés like "As an AI" or repetitive boilerplate.`;
 

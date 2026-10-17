@@ -314,7 +314,7 @@ export default function DemoPage() {
           </div>
           <div>
             <div className="flex items-center space-x-2.5">
-              <span className="font-bold text-base text-white tracking-tight">NexusAI</span>
+              <span className="font-bold text-base text-white tracking-tight">ReplyAI</span>
               <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 flex items-center space-x-1.5 shadow-sm shadow-emerald-500/10">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
                 <span>SYSTEM ONLINE</span>
@@ -462,7 +462,7 @@ export default function DemoPage() {
                       ) : (
                         <>
                           <Bot className="w-3.5 h-3.5 text-indigo-400" />
-                          <span>NexusAI Agent</span>
+                          <span>ReplyAI Agent</span>
                         </>
                       )}
                     </span>
@@ -809,7 +809,7 @@ export default function DemoPage() {
 
       {/* Footer */}
       <footer className="relative z-10 border-t border-slate-800/80 bg-[#0a0c16] px-6 py-4 text-center text-xs text-slate-500">
-        <p>NexusAI Social Automation Platform · Production Architecture · High-Throughput Multi-LLM Gateway</p>
+        <p>ReplyAI Social Automation Platform · Production Architecture · High-Throughput Multi-LLM Gateway</p>
       </footer>
     </div>
   );
