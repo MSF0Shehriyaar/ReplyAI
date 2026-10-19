@@ -9,8 +9,8 @@
   "workers_dev": true,
   "routes": [
     {
-      "pattern": "automation.ninakurainservices.in",
-      "custom_domain": true
+      "pattern": "automation.ninakurainservices.in/*",
+      "zone_name": "ninakurainservices.in"
     }
   ],
   "triggers": {

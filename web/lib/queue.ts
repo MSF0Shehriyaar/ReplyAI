@@ -71,23 +71,36 @@ export async function processNextJob(){
  await throttledCleanup();await recoverStaleJobs();const s=await settings();
  const accounts=await instagramAccounts();
  const now=Date.now();
- const job=await db().prepare(`SELECT j.* FROM jobs j WHERE j.status='pending' AND j.attempts<5 AND j.created<=?
+ const candidateJobs=(await db().prepare(`SELECT j.* FROM jobs j WHERE j.status='pending' AND j.attempts<5 AND j.created<=?
  AND NOT EXISTS (SELECT 1 FROM jobs p WHERE p.thread_id=j.thread_id AND p.status='processing')
- ORDER BY j.created ASC LIMIT 1`).bind(now).first<Job>();
- if(!job)return {processed:0};
- let parsedJob:any=null;
- try{parsedJob=JSON.parse(job.payload);}catch{}
- const channel:Channel=parsedJob?.channel==='comment'?'comment':'dm';
- const account=accounts.find(a=>a.id===(parsedJob?.accountId||'legacy-instagram'));
+ ORDER BY j.created ASC LIMIT 25`).bind(now).all<Job>()).results;
+ if(!candidateJobs || candidateJobs.length===0) return {processed:0};
 
- // Channel automation window check (comments active 24/7 vs DMs sleep/break):
- const win=channelAutomationWindow(s,channel,account,now);
- if(!win.active){
-  if(win.nextChangeAt && win.nextChangeAt > now){
-   await db().prepare("UPDATE jobs SET created=? WHERE id=? AND status='pending'").bind(win.nextChangeAt,job.id).run();
+ let job: Job | null = null;
+ let parsedJob: any = null;
+ let channel: Channel = 'comment';
+ let account: any = null;
+
+ for(const candidate of candidateJobs){
+  let p:any=null;
+  try{p=JSON.parse(candidate.payload);}catch{}
+  const ch:Channel=p?.channel==='comment'?'comment':'dm';
+  const acc=accounts.find(a=>a.id===(p?.accountId||'legacy-instagram'));
+  const win=channelAutomationWindow(s,ch,acc,now);
+
+  if(!win.active){
+   const postponeUntil=(win.nextChangeAt && win.nextChangeAt > now)?win.nextChangeAt:(now + 3600000);
+   await db().prepare("UPDATE jobs SET created=? WHERE id=? AND status='pending'").bind(postponeUntil,candidate.id).run();
+   continue;
   }
-  return {processed:0,sleeping:true};
+  job=candidate;
+  parsedJob=p;
+  channel=ch;
+  account=acc;
+  break;
  }
+
+ if(!job) return {processed:0,sleeping:true};
 
  // Wait window calculation (channel-wise and account-wise):
  const waitSeconds = channel === 'dm'
@@ -151,9 +164,10 @@ export async function processNextJob(){
    }
    if(dynamicMedia?.media_product_type) t.mediaType = dynamicMedia.media_product_type.toLowerCase();
 
-   // 1. Reel upload age cutoff (default 7 days, configurable):
+   // 1. Reel upload age cutoff (default 7 days, 0 = unlimited):
    const maxAgeDays = s.commentMaxAgeDays ?? 7;
-   if(maxAgeDays > 0){
+   const isFollowGateActive = !!s.followGateEnabled;
+   if(maxAgeDays > 0 && !isFollowGateActive){
     const publishedTime = dynamicMedia?.timestamp
      ? new Date(dynamicMedia.timestamp).getTime()
      : (s.postCatalog?.find(p=>p.id===t.mediaId)?.dateAdded);
@@ -252,6 +266,7 @@ export async function processNextJob(){
   const accountComments=account?account.commentsEnabled!==false:true;
   const accountAi=account?account.aiEnabled!==false:true;
   const channelAllowed=t.channel==='dm'?(s.dm&&accountDm):(s.comments&&accountComments);
+  const win=channelAutomationWindow(s,t.channel,account,now);
   const eligibleBase=account?.enabled&&accountAi&&account.verified&&!excluded.includes(String(e.recipientId))&&!excluded.includes(account.id+':'+e.recipientId)&&t.status!=='sending'&&t.status!=='uncertain'&&!t.takeover&&t.ai&&channelAllowed&&t.lastInbound<=e.at;
   if(eligibleBase&&!win.active){
    const nextActive=win.nextChangeAt||(Date.now()+60000);
