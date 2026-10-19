@@ -89,6 +89,25 @@ export async function processNextJob(){
   const win=channelAutomationWindow(s,ch,acc,now);
 
   if(!win.active){
+   if(win.phase==='paused'&&!win.nextChangeAt){
+    try {
+     const e = p;
+     if(e?.threadId && e?.text){
+      let t: Thread;
+      try { t = await getThread(e.threadId); } catch {
+       t = { accountId: e.accountId || 'legacy-instagram', id: e.threadId, name: e.username, username: e.username, channel: e.channel, demo: false, status: 'open', takeover: false, ai: false, messages: [], draft: '', lastInbound: e.at || now, updated: e.at || now, version: 0, recipientId: e.recipientId };
+      }
+      if(!t.messages.some(m => m.role === 'incoming' && (m.eventId === candidate.id || (!m.eventId && m.at === e.at && m.text === e.text)))){
+       t.messages.push({ role: 'incoming', eventId: candidate.id, text: e.text, at: e.at || now });
+       t.lastInbound = e.at || now;
+       t.updated = now;
+       await saveThread(t);
+      }
+     }
+    } catch {}
+    await db().prepare("UPDATE jobs SET status='done' WHERE id=?").bind(candidate.id).run();
+    continue;
+   }
    const postponeUntil=(win.nextChangeAt && win.nextChangeAt > now)?win.nextChangeAt:(now + 3600000);
    await db().prepare("UPDATE jobs SET created=? WHERE id=? AND status='pending'").bind(postponeUntil,candidate.id).run();
    continue;
