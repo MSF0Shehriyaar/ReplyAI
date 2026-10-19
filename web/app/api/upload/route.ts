@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireWorkspaceRequest, audit } from '@/lib/server';
+import { requireWorkspaceRequest, audit, getPublicAppOrigin } from '@/lib/server';
 import { uploadGoogleDriveFile } from '@/lib/google-drive';
 
 export const dynamic = 'force-dynamic';
@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json() as any;
     const { dataUrl, name = 'Photoshoot Snap', googleDriveUrl } = body || {};
 
-    const origin = new URL(request.url).origin;
+    const origin = getPublicAppOrigin(request);
 
     // 1. Google Drive Link Import
     if (googleDriveUrl) {

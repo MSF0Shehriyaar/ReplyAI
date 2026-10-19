@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSnap, burnSnap, createSnapToken, requireWorkspaceRequest } from '@/lib/server';
+import { getSnap, burnSnap, createSnapToken, requireWorkspaceRequest, getPublicAppOrigin } from '@/lib/server';
 
 export const dynamic = 'force-dynamic';
 
@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
       durationSeconds
     });
 
-    const snapBase = process.env.NEXT_PUBLIC_APP_URL || process.env.SNAP_BASE_URL || 'https://automation.ninakurainservices.in';
+    const snapBase = getPublicAppOrigin(request);
     const snapUrl = `${snapBase}/snap/${token}`;
 
     return NextResponse.json({ ok: true, token, snapUrl });

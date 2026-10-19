@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireWorkspaceRequest, secret, saveSecret, readState, writeState, audit, db } from '@/lib/server';
+import { requireWorkspaceRequest, secret, saveSecret, readState, writeState, audit, db, getPublicAppOrigin } from '@/lib/server';
 import { 
   getGoogleDriveCredentials, 
   saveGoogleDriveCredentials, 
@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const action = searchParams.get('action');
 
-    const origin = new URL(request.url).origin;
+    const origin = getPublicAppOrigin(request);
     const redirectUri = `${origin}/api/google-drive/callback`;
 
     const credentials = await getGoogleDriveCredentials();
@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'File ID is required.' }, { status: 400 });
       }
 
-      const origin = new URL(request.url).origin;
+      const origin = getPublicAppOrigin(request);
       const directUrl = `${origin}/api/media?driveId=${fileId}`;
 
       await audit('Drive photo linked', `Selected photo "${name || fileId}" directly from Google Drive`);

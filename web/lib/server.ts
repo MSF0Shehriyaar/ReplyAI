@@ -75,6 +75,32 @@ export async function requireWorkspaceRequest(request?:Request){
     }
   }
 }
+
+export function getPublicAppOrigin(request?: Request): string {
+  if (process.env.NEXT_PUBLIC_APP_URL) {
+    return process.env.NEXT_PUBLIC_APP_URL.replace(/\/+$/, '');
+  }
+  if (process.env.SNAP_BASE_URL) {
+    return process.env.SNAP_BASE_URL.replace(/\/+$/, '');
+  }
+  if (request) {
+    const fwdHost = request.headers.get('x-forwarded-host');
+    const fwdProto = request.headers.get('x-forwarded-proto') || 'https';
+    if (fwdHost && !fwdHost.includes('localhost') && !fwdHost.includes('127.0.0.1')) {
+      return `${fwdProto}://${fwdHost}`;
+    }
+    const origin = request.headers.get('origin');
+    if (origin && !origin.includes('localhost') && !origin.includes('127.0.0.1')) {
+      return origin.replace(/\/+$/, '');
+    }
+    const host = request.headers.get('host');
+    if (host && !host.includes('localhost') && !host.includes('127.0.0.1') && !host.includes(':10000')) {
+      return `https://${host}`;
+    }
+  }
+  return 'https://automation.ninakurainservices.in';
+}
+
 const stateCache = new Map<string, { val: any; exp: number }>();
 export async function readState<T>(key:string,fallback:T):Promise<T>{
  const now = Date.now();
@@ -1029,11 +1055,13 @@ export async function createSnapToken({
  const normalizedUrl = imageUrl.trim();
  let finalUrl = normalizedUrl;
  const driveMatch = normalizedUrl.match(/\/file\/d\/([a-zA-Z0-9_-]+)/) || normalizedUrl.match(/[?&]id=([a-zA-Z0-9_-]+)/) || normalizedUrl.match(/[?&]driveId=([a-zA-Z0-9_-]+)/);
- const snapBase = process.env.NEXT_PUBLIC_APP_URL || process.env.SNAP_BASE_URL || 'https://automation.ninakurainservices.in';
+ const snapBase = getPublicAppOrigin();
  if (driveMatch && driveMatch[1]) {
   finalUrl = `${snapBase}/api/media?driveId=${driveMatch[1]}`;
  } else if (normalizedUrl.startsWith('/api/')) {
   finalUrl = `${snapBase}${normalizedUrl}`;
+ } else if (finalUrl.includes('localhost:10000')) {
+  finalUrl = finalUrl.replace(/https?:\/\/localhost:10000/g, snapBase);
  }
 
  const token = crypto.randomUUID().replace(/-/g, '').slice(0, 16);

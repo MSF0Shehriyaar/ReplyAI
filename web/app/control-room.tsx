@@ -59,10 +59,13 @@ function Card({title,description,children,icon:Icon}:{title:string;description?:
 
 function normalizeSnapUrl(url: string): string {
   if (!url) return '';
-  const trimmed = url.trim();
+  let trimmed = url.trim();
+  if (trimmed.includes('localhost:10000')) {
+    trimmed = trimmed.replace(/https?:\/\/localhost:10000/g, 'https://automation.ninakurainservices.in');
+  }
   const fileMatch = trimmed.match(/\/file\/d\/([a-zA-Z0-9_-]+)/) || trimmed.match(/[?&]id=([a-zA-Z0-9_-]+)/) || trimmed.match(/\/open\?id=([a-zA-Z0-9_-]+)/) || trimmed.match(/[?&]driveId=([a-zA-Z0-9_-]+)/);
   if (fileMatch && fileMatch[1]) {
-    return '/api/media?driveId=' + fileMatch[1];
+    return 'https://automation.ninakurainservices.in/api/media?driveId=' + fileMatch[1];
   }
   return trimmed;
 }
@@ -99,8 +102,12 @@ async function handlePhotoUpload(file: File): Promise<string> {
             name: file.name
           });
           if (res?.url) {
+            let finalUrl = res.url;
+            if (finalUrl.includes('localhost:10000')) {
+              finalUrl = finalUrl.replace(/https?:\/\/localhost:10000/g, 'https://automation.ninakurainservices.in');
+            }
             toast.success('Photo uploaded & stored successfully!');
-            resolve(res.url);
+            resolve(finalUrl);
           } else {
             reject(new Error(res?.error || 'Upload failed'));
           }
@@ -181,7 +188,11 @@ export default function ControlRoom(){
       toast.info('Importing photo from Google Drive…');
       const res:any=await api('/api/google-drive','POST',{action:'import-file',fileId,name:fileName});
       if(res?.url&&driveTargetCallback){
-        driveTargetCallback(res.url,fileName);
+        let cleanUrl = res.url;
+        if (cleanUrl.includes('localhost:10000')) {
+          cleanUrl = cleanUrl.replace(/https?:\/\/localhost:10000/g, 'https://automation.ninakurainservices.in');
+        }
+        driveTargetCallback(cleanUrl,fileName);
         toast.success('Photo imported and linked!');
         setDrivePickerOpen(false);
       }
@@ -192,7 +203,37 @@ export default function ControlRoom(){
 const [newPostEntry,setNewPostEntry]=useState<{id:string;title:string;description:string;caption:string;contentType:'reel'|'post'|'story';commentsEnabled?:boolean;snapUrl?:string;snapLabel?:string}>({id:'',title:'',description:'',caption:'',contentType:'reel',commentsEnabled:true,snapUrl:'',snapLabel:''});
  const replyWindow=automationWindow(data.settings,clock);
  const navigate=useCallback((id:string)=>{setView(id);if(typeof window!=='undefined')window.history.replaceState(null,'','?view='+id);},[]);
- const reload=useCallback(async(preserveSettings=false)=>{try{const w=await api('/api/workspace');setData(w);if(!preserveSettings){setS(w.settings);setDirty(false);}setLoadError('');return w as Workspace;}catch(e){setLoadError((e as Error).message);throw e;}finally{setLoading(false);}},[]);
+ const reload=useCallback(async(preserveSettings=false)=>{
+   try{
+     const w: any=await api('/api/workspace');
+     if (w?.settings) {
+       if (Array.isArray(w.settings.followGatePhotos)) {
+         w.settings.followGatePhotos = w.settings.followGatePhotos.map((p: any) => ({
+           ...p,
+           url: p.url ? p.url.replace(/https?:\/\/localhost:10000/g, 'https://automation.ninakurainservices.in') : p.url
+         }));
+       }
+       if (Array.isArray(w.settings.postCatalog)) {
+         w.settings.postCatalog = w.settings.postCatalog.map((p: any) => ({
+           ...p,
+           snapUrl: p.snapUrl ? p.snapUrl.replace(/https?:\/\/localhost:10000/g, 'https://automation.ninakurainservices.in') : p.snapUrl
+         }));
+       }
+     }
+     setData(w);
+     if(!preserveSettings){
+       setS(w.settings);
+       setDirty(false);
+     }
+     setLoadError('');
+     return w as Workspace;
+   }catch(e){
+     setLoadError((e as Error).message);
+     throw e;
+   }finally{
+     setLoading(false);
+   }
+ },[]);
  useEffect(()=>{
   // Verify owner authentication status
   fetch('/api/auth')

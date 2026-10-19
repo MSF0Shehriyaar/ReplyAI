@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireWorkspaceRequest } from '@/lib/server';
+import { requireWorkspaceRequest, getPublicAppOrigin } from '@/lib/server';
 import { getGoogleDriveCredentials } from '@/lib/google-drive';
 
 export const dynamic = 'force-dynamic';
@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url);
-    const origin = new URL(request.url).origin;
+    const origin = getPublicAppOrigin(request);
     
     // Support Google Cloud registered callback URIs
     const customUri = searchParams.get('redirect_uri');

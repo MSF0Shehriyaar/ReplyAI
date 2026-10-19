@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { saveSecret, writeState, audit } from '@/lib/server';
+import { saveSecret, writeState, audit, getPublicAppOrigin } from '@/lib/server';
 import { getGoogleDriveCredentials } from '@/lib/google-drive';
 
 export const dynamic = 'force-dynamic';
@@ -11,7 +11,7 @@ export async function GET(request: NextRequest) {
     const error = searchParams.get('error');
     const rawState = searchParams.get('state');
 
-    let origin = new URL(request.url).origin;
+    let origin = getPublicAppOrigin(request);
     let redirectUri = `${origin}/api/integrations/google-drive/callback`;
 
     if (rawState) {
@@ -91,7 +91,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.redirect(`${origin}/?view=connections&google_drive_connected=true`);
   } catch (err: any) {
-    const origin = new URL(request.url).origin;
+    const origin = getPublicAppOrigin(request);
     return NextResponse.redirect(`${origin}/?view=connections&google_drive_error=${encodeURIComponent(err?.message || 'Authentication error')}`);
   }
 }
