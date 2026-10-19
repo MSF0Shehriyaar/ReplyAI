@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
       durationSeconds
     });
 
-    const snapBase = process.env.SNAP_BASE_URL || (new URL(request.url).origin.includes('localhost') ? new URL(request.url).origin : 'http://localhost:3000');
+    const snapBase = process.env.NEXT_PUBLIC_APP_URL || process.env.SNAP_BASE_URL || 'https://automation.ninakurainservices.in';
     const snapUrl = `${snapBase}/snap/${token}`;
 
     return NextResponse.json({ ok: true, token, snapUrl });

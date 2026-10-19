@@ -1029,7 +1029,7 @@ export async function createSnapToken({
  const normalizedUrl = imageUrl.trim();
  let finalUrl = normalizedUrl;
  const driveMatch = normalizedUrl.match(/\/file\/d\/([a-zA-Z0-9_-]+)/) || normalizedUrl.match(/[?&]id=([a-zA-Z0-9_-]+)/) || normalizedUrl.match(/[?&]driveId=([a-zA-Z0-9_-]+)/);
- const snapBase = process.env.SNAP_BASE_URL || 'http://localhost:3000';
+ const snapBase = process.env.NEXT_PUBLIC_APP_URL || process.env.SNAP_BASE_URL || 'https://automation.ninakurainservices.in';
  if (driveMatch && driveMatch[1]) {
   finalUrl = `${snapBase}/api/media?driveId=${driveMatch[1]}`;
  } else if (normalizedUrl.startsWith('/api/')) {

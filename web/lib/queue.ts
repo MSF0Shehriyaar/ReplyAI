@@ -241,7 +241,7 @@ export async function processNextJob(){
           durationSeconds: s.followGateDurationSeconds || 7
         });
         const successTemplate = s.followGateSuccessMsg || 'Yay! Here is your exclusive photoshoot snap (opens only once 😉):';
-        const snapBase = process.env.SNAP_BASE_URL || 'http://localhost:3000';
+        const snapBase = process.env.NEXT_PUBLIC_APP_URL || process.env.SNAP_BASE_URL || 'https://automation.ninakurainservices.in';
         draft = `${successTemplate}\n${snapBase}/snap/${snapToken}\n\n⚠️ Tap to view under card. Anti-screenshot protected & self-destructs after ${s.followGateDurationSeconds || 7}s!`;
       }
 
