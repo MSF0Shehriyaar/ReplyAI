@@ -1029,10 +1029,11 @@ export async function createSnapToken({
  const normalizedUrl = imageUrl.trim();
  let finalUrl = normalizedUrl;
  const driveMatch = normalizedUrl.match(/\/file\/d\/([a-zA-Z0-9_-]+)/) || normalizedUrl.match(/[?&]id=([a-zA-Z0-9_-]+)/) || normalizedUrl.match(/[?&]driveId=([a-zA-Z0-9_-]+)/);
+ const snapBase = process.env.SNAP_BASE_URL || 'http://localhost:3000';
  if (driveMatch && driveMatch[1]) {
-  finalUrl = `https://automation.ninakurainservices.in/api/media?driveId=${driveMatch[1]}`;
+  finalUrl = `${snapBase}/api/media?driveId=${driveMatch[1]}`;
  } else if (normalizedUrl.startsWith('/api/')) {
-  finalUrl = `https://automation.ninakurainservices.in${normalizedUrl}`;
+  finalUrl = `${snapBase}${normalizedUrl}`;
  }
 
  const token = crypto.randomUUID().replace(/-/g, '').slice(0, 16);

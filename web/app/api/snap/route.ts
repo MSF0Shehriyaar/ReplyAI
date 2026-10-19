@@ -74,8 +74,8 @@ export async function POST(request: NextRequest) {
       durationSeconds
     });
 
-    const origin = new URL(request.url).origin;
-    const snapUrl = `${origin}/snap/${token}`;
+    const snapBase = process.env.SNAP_BASE_URL || (new URL(request.url).origin.includes('localhost') ? new URL(request.url).origin : 'http://localhost:3000');
+    const snapUrl = `${snapBase}/snap/${token}`;
 
     return NextResponse.json({ ok: true, token, snapUrl });
   } catch (err: any) {
