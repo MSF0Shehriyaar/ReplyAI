@@ -273,6 +273,13 @@ export function isGenericRefusal(text:string){
   || /\b(?:content policy|safety guidelines|safety policy|terms of service|against my programming|policy prevents)\b/i.test(t)
   || /\b(?:i cannot fulfill this request|unable to fulfill this request|cannot generate sexually explicit|cannot generate content that is|unable to generate sexually explicit)\b/i.test(t);
 }
+const recentCommentSent: string[] = [];
+export function recordCommentSent(text: string) {
+  const norm = text.toLowerCase().replace(/[\p{P}\p{S}]/gu, '').replace(/\s+/g, ' ').trim();
+  recentCommentSent.unshift(norm);
+  if (recentCommentSent.length > 50) recentCommentSent.pop();
+}
+
 export function explicitBoundaryDraft(channel:'dm'|'comment',history:Thread['messages']=[],input='',uncensored=false){
  if(history.some(m=>m.role==='incoming'&&reviewFlag(m.text).startsWith('Age mentioned')))return 'Let’s keep our conversation friendly and appropriate.';
  const reference=languageReference(input,history);
@@ -287,62 +294,114 @@ export function explicitBoundaryDraft(channel:'dm'|'comment',history:Thread['mes
   if (/\b(kaha rehti|kaha se|location|address|area|which place|where in mumbai)\b/i.test(lower)) {
    const locReplies = romanHindi
     ? [
-       "Bas Mumbai se hu haha, personal address ya location share nahi karti 🤍",
-       "Sirf Mumbai jaan, exact area ya address private rehta hai 😉",
-       "Mumbai se hu bas, privacy first haha ✨",
-       "Just Mumbai vibes haha, details nahi de sakti 🤍"
+       "Bas Mumbai se hu, shoot spots personal rehte hai 🤍",
+       "Mumbai vibes only, location details private hai ✨",
+       "Just Mumbai vibes, keeping spots personal 🤍",
+       "Mumbai girl, keeping my spots personal ✨"
       ]
     : [
-       "Just from Mumbai haha, can't share personal address or location 🤍",
-       "Mumbai girl here, keeping the exact location private 😉",
-       "Just Mumbai babe, privacy first ✨",
-       "From Mumbai only, I don't share address details 🤍"
+       "Just Mumbai vibes, keeping shoot spots personal 🤍",
+       "Mumbai girl here, keeping the exact location private ✨",
+       "Just Mumbai babe, privacy first 🤍",
+       "From Mumbai only, keeping details personal ✨"
       ];
-   return locReplies.find(r => !previous.includes(r)) ?? locReplies[0];
+   return locReplies.find(r => !previous.includes(r)) ?? locReplies[Math.floor(Math.random() * locReplies.length)];
   }
 
   // Meetup / Offline date request:
   const meetReplies = romanHindi
    ? [
-      "Haha online chat only, meetups nahi karti 😉",
-      "Sirf DMs aur feed pe hi milungi 🤍",
-      "Privacy first haha, no offline meets ✨",
-      "Haha nice try, chat pe hi baat karo 🤍",
-      "Online only baby, real meets possible nahi hai 😉"
+      "Online only, real meets possible nahi hai 🤍",
+      "Sirf DMs aur feed pe hi milungi ✨",
+      "Strictly digital, no offline meets 🤍",
+      "Chat pe hi baat karo, meetups nahi karti ✨",
+      "Digital only, keeping my boundaries clear 🤍"
      ]
    : [
-      "Haha online chat only, no in-person meets 🤍",
-      "Only on your feed and in DMs haha 😉",
-      "Privacy first, strictly text only ✨",
-      "Haha nice try, chat here only 🤍"
+      "Strictly digital, no in-person meets 🤍",
+      "Only on the feed and in DMs ✨",
+      "Privacy first, strictly text only 🤍",
+      "Chat here only, no offline meets ✨",
+      "Digital only, keeping boundaries intact 🤍"
      ];
-  return meetReplies.find(r => !previous.includes(r)) ?? meetReplies[0];
+  return meetReplies.find(r => !previous.includes(r)) ?? meetReplies[Math.floor(Math.random() * meetReplies.length)];
  }
 
- // 2. Public Comments
+ // 2. Public Comments - Classy, Poised, Sophisticated Mumbai Influencer Tone
  if (channel === 'comment') {
-  const commentReplies = romanHindi
-   ? [
-      "Control karo thoda haha ✨",
-      "Focus on the outfit haha 📸",
-      "In your dreams haha ✨",
-      "Comment section hai, keep it chill 😌",
-      "Drink some water haha 🧊",
-      "Aww thank you! 🤍",
-      "Keep admiring haha 😉",
-      "Outfit check haha ✨",
-      "Aap thoda zyada aage nikal gaye haha 🧊"
-     ]
-   : [
-      "Drink some water haha 🧊",
-      "Focus on the photoshoot haha ✨",
-      "In your dreams haha ✨",
-      "Keep admiring haha 😉",
-      "Control your horses haha ✨",
-      "Aww thank you so much! 🤍",
-      "Comment section, keep it polite 😌"
-     ];
-  return commentReplies.find(reply => !previous.includes(reply)) ?? commentReplies[0];
+  const isCompliment = /\b(nice|super|beautiful|gorgeous|pretty|sundar|fav|favourite|love|cute|queen|slay|killer|stunning|amazing|look|outfit|dress|eyes|smile|aesthetic|art|perfect|proud|model|mast|ek number)\b/i.test(lower);
+  const isCheeky = /\b(sexy|hot|maal|babe|baby|kiss|waist|figure|body|bomb|patakha|item|naughty|wild|fire)\b/i.test(lower);
+
+  let candidates: string[] = [];
+  if (romanHindi) {
+    if (isCheeky) {
+      candidates = [
+        "Comment section hai, keep it refined 😌",
+        "In your dreams ✨",
+        "Thoda control, keep it classy 😉",
+        "Appreciate the energy, stay composed ✨",
+        "Tareef theek hai, boundaries yaad rakho 🤍",
+        "Focus on the styling ✨",
+        "Confidence acchi hai, keep it subtle 😌"
+      ];
+    } else if (isCompliment) {
+      candidates = [
+        "Thank you, appreciate the love ✨",
+        "Aww thank you, bohot sweet ho 🤍",
+        "Glad you loved the aesthetic ✨",
+        "Appreciate that, so kind of you 🤍",
+        "Thank you so much, glad you liked it ✨",
+        "Bohot pyara comment, thank you 🤍",
+        "Appreciate the love, thank you so much ✨",
+        "So sweet of you, thank you 🤍"
+      ];
+    } else {
+      candidates = [
+        "Thank you, appreciate the love ✨",
+        "Glad you're enjoying the vibe 🤍",
+        "Appreciate the support ✨",
+        "So kind of you, thanks 🤍",
+        "Much love ✨"
+      ];
+    }
+  } else {
+    if (isCheeky) {
+      candidates = [
+        "Keep it classy in the comments 😌",
+        "In your dreams ✨",
+        "Appreciate the energy, stay composed 😉",
+        "Subtle compliments suit you better ✨",
+        "Comment section, keep it refined 🤍",
+        "Focus on the aesthetic ✨",
+        "Confidence is cute, keep it poised 😌"
+      ];
+    } else if (isCompliment) {
+      candidates = [
+        "Thank you, appreciate the love ✨",
+        "So sweet of you, thank you 🤍",
+        "Glad you loved the aesthetic ✨",
+        "Appreciate that, so kind of you 🤍",
+        "Much love, thank you ✨",
+        "Aww, thank you for the love 🤍",
+        "Appreciate you noticing the vibe ✨",
+        "Sweet of you, thanks 🤍"
+      ];
+    } else {
+      candidates = [
+        "Thank you, appreciate the support ✨",
+        "Glad you liked the post 🤍",
+        "Appreciate the love ✨",
+        "Thank you so much 🤍",
+        "Much love ✨"
+      ];
+    }
+  }
+
+  const allPast = [...previous, ...recentCommentSent];
+  const available = candidates.filter(r => !allPast.some(p => p.toLowerCase().includes(r.toLowerCase().slice(0, 15))));
+  const pool = available.length > 0 ? available : candidates;
+  const picked = pool[Math.floor(Math.random() * pool.length)];
+  return picked;
  }
 
  // 3. Private DMs - Creative, Dynamic & Seductive Replies according to user's desire
@@ -849,6 +908,9 @@ export async function sendReply(t:Thread,text:string,eventId?:string,eventIds:st
   t.status = 'resolved';
   await saveThread(t);
 
+  if (t.channel === 'comment' && !usePrivateReply) {
+    recordCommentSent(outboundText);
+  }
   const day = new Date().toISOString().slice(0, 10);
   await db().prepare('INSERT INTO usage (day,calls,tokens,sent) VALUES (?,0,0,1) ON CONFLICT(day) DO UPDATE SET sent=sent+1').bind(day).run();
   await audit('Reply sent', 'Sent a ' + (t.channel === 'dm' || usePrivateReply ? 'private DM' : 'comment reply') + ' to ' + t.username);

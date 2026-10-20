@@ -8,7 +8,14 @@ export const providerConfig:Record<ProviderKind,{name:string;base:string}> = {
  cloudflare:{name:'Cloudflare Workers AI',base:'https://api.cloudflare.com/client/v4/accounts'},
 };
 export function completionBody(provider:ProviderKind,model:string,messages:{role:string;content:string}[],temperature?:number){
- return {model:provider==='gemini'?model.replace(/^models\//,''):model,messages,temperature:temperature ?? .75,stop:['\nUser:','\n[User','\n\nUser:','\n[You replied]','<|eot_id|>','<|end_of_text|>'],...(provider==='groq'?{max_completion_tokens:500,...(model.startsWith('openai/')?{reasoning_effort:'low'}:{})}:{max_tokens:500}),...(provider==='gemini'?{reasoning_effort:'low'}:{})};
+ return {
+  model: provider==='gemini'?model.replace(/^models\//,''):model,
+  messages,
+  temperature: temperature ?? .75,
+  stop: ['\nUser:', '\n[User', '<|eot_id|>', '<|end_of_text|>'],
+  ...(provider==='groq'?{max_completion_tokens:500,...(model.startsWith('openai/')?{reasoning_effort:'low'}:{})}:{max_tokens:500}),
+  ...(provider==='gemini'?{reasoning_effort:'low'}:{})
+ };
 }
 export function accountForEntry(accounts:InstagramAccount[],ownerId:unknown){return accounts.find(a=>a.verified&&a.igId&&a.igId===String(ownerId));}
 export function accountThreadId(accountId:string,channel:'dm'|'comment',id:string){return (accountId==='legacy-instagram'?'':accountId+':')+channel+':'+id;}
