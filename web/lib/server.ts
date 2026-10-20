@@ -503,19 +503,20 @@ export function sanitizeInstagramText(text:string,maxWords=15):string {
  cleaned = maskSensitiveAnatomy(enforceRespectfulFemaleGrammar(cleaned));
  const sentenceMatches = cleaned.split(/(?<=[.!?~…])\s+/).filter(Boolean);
  let result = '';
- for (const s of sentenceMatches) {
-  const trimmed = s.trim();
-  if (!trimmed) continue;
-  const candidate = result ? result + ' ' + trimmed : trimmed;
-  const count = candidate.split(/\s+/).filter(Boolean).length;
-  if (result && count > maxWords) break;
-  result = candidate;
-  if (count >= maxWords || (maxWords <= 8 && result.split(/(?<=[.!?~…])\s+/).filter(Boolean).length >= 1)) break;
-  if (result.split(/(?<=[.!?~…])\s+/).filter(Boolean).length >= 2) break;
+ if (sentenceMatches.length > 0) {
+  let acc = '';
+  for (const s of sentenceMatches) {
+   const next = acc ? acc + ' ' + s.trim() : s.trim();
+   if (acc && next.split(/\s+/).length > Math.max(maxWords, 22)) break;
+   acc = next;
+   if (acc.split(/\s+/).length >= maxWords) break;
+  }
+  result = acc || sentenceMatches[0].trim();
+ } else {
+  result = cleaned;
  }
- if (!result) result = cleaned;
  const words = result.split(/\s+/).filter(Boolean);
- if (words.length > maxWords) {
+ if (words.length > Math.max(maxWords + 6, 25)) {
   result = words.slice(0, maxWords).join(' ');
  }
  return maskSensitiveAnatomy(result.replace(/[,;:\-\s]+$/, '').trim());
@@ -563,7 +564,9 @@ export async function generateReply(input:string,channel:'dm'|'comment',history:
  const claimGeneration=async()=>{const claim=await db().prepare('UPDATE usage SET calls=calls+1 WHERE day=? AND (?=0 OR calls<?)').bind(day,s.dailyLimit,s.dailyLimit).run();if(!claim.meta.changes)throw new AppError('Your daily generation limit has been reached.',429);};
  const reference=s.language==='English'?'English':s.language==='Hinglish'?'Kya baat hai':languageReference(input.split('\n').at(-1)||input,history);
  const isAdultTone=(account?.tone||s.tone)==='erotic'||(account?.tone||s.tone)==='spicy'||uncensored;
- const targetMaxWords=s.maxWords??(s.length===1?8:s.length===2?15:s.length===3?28:12);
+ const targetMaxWords = channel === 'comment'
+   ? Math.max(10, Math.min(18, s.maxWords ?? 14))
+   : (s.maxWords ?? (s.length===1?8:s.length===2?15:s.length===3?28:12));
  let cleanInput=input.trim();
  if (channel === 'comment') {
   cleanInput = cleanInput.replace(/^@?kurain\.[a-z0-9_]+\s*/i, '').trim();
@@ -785,7 +788,8 @@ export async function generateReply(input:string,channel:'dm'|'comment',history:
  let reply='';
  try{
   reply=sanitizeInstagramText(await complete(messages),targetMaxWords);
- }catch(err){
+ }catch(err: any){
+  console.error("[COMPLETE_THREW]:", err?.message || err);
   if(is18Plus||channel==='comment'){
    reply=explicitBoundaryDraft(channel,history,input,uncensored);
   }else{
@@ -794,18 +798,20 @@ export async function generateReply(input:string,channel:'dm'|'comment',history:
  }
  const previous=history.filter(m=>m.role==='outgoing').slice(-8).map(m=>m.text);
  if(isGenericRefusal(reply)||!reply){
+  console.warn("[GENERIC_REFUSAL_OR_EMPTY]:", JSON.stringify(reply));
   reply=explicitBoundaryDraft(channel,history,input,uncensored);
  }
  if(!uncensored){
-  if(reply && needsReplyRewrite(reply,reference,s.length===1,previous)){
+  if(reply && needsReplyRewrite(reply,reference,channel==='comment'?false:s.length===1,previous)){
    try{
-    reply=await complete([{role:'system',content:system+' Rewrite the supplied draft as a natural reply to the current message. Follow the language and alphabet of the supplied reference; do not translate Romanized messages into native script. Remove stock refusal wording while keeping a gentle, non-graphic boundary when needed. Do not copy the listed previous replies. '+replyLengthInstruction(s.length)},{role:'user',content:JSON.stringify({currentMessage:input,languageReference:reference,draft:reply,previousReplies:previous})}]);
+    const rewriteLength = channel === 'comment' ? 'one natural, stylish sentence (6-16 words)' : replyLengthInstruction(s.length);
+    reply=await complete([{role:'system',content:system+' Rewrite the supplied draft as a natural reply to the current message. Follow the language and alphabet of the supplied reference; do not translate Romanized messages into native script. Remove stock refusal wording while keeping a gentle, non-graphic boundary when needed. Do not copy the listed previous replies. '+rewriteLength},{role:'user',content:JSON.stringify({currentMessage:input,languageReference:reference,draft:reply,previousReplies:previous})}]);
    }catch{}
   }
   if(isGenericRefusal(reply)||!reply)reply=explicitBoundaryDraft(channel,history,input);
   if(previous.length && repeatedReply(reply,previous) && !isProfileQuestion(input))throw new AppError('A repeated draft was withheld and will be regenerated.',422,true);
   reply=varyEmoji(reply,previous);
-  if(!reply||reply.length>1000||needsRomanization(reference,reply)||(s.length===1&&reply.split(/\s+/).length>targetMaxWords))throw new AppError('This reply needs a fresh draft. No message was sent.',422);
+  if(!reply||reply.length>1000||needsRomanization(reference,reply)||(channel!=='comment'&&s.length===1&&reply.split(/\s+/).length>targetMaxWords))throw new AppError('This reply needs a fresh draft. No message was sent.',422);
  } else {
   reply=varyEmoji(reply,previous,true);
  }
