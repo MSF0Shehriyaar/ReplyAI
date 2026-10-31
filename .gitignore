@@ -52,3 +52,9 @@ scratch/
 outputs/
 work/
 
+
+# WhatsApp Auth & Local State
+.wa-auth/
+**/.wa-auth/**
+workspace_state.json
+**/workspace_state.json
