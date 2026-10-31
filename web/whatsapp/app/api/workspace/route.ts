@@ -37,7 +37,8 @@ const SECRET_SIGN_KEY = 'nina_secure_owner_auth_key_2026';
 
 async function verifyAdminToken(token: string): Promise<boolean> {
   try {
-    const [payloadB64, sigHex] = token.split('.');
+    const raw = decodeURIComponent(token).trim().replace(/^"|"$/g, '');
+    const [payloadB64, sigHex] = raw.split('.');
     if (!payloadB64 || !sigHex) return false;
     const payload = atob(payloadB64);
     const enc = new TextEncoder();

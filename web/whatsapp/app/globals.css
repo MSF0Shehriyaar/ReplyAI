@@ -1,151 +1,335 @@
 @import "tailwindcss";
 
+/* ══════════════════════════════════════════════════════════════
+   CSS Design Tokens — WhatsApp Automation Hub
+   ══════════════════════════════════════════════════════════════ */
 :root {
-  --bg-primary: #090d16;
-  --bg-secondary: #0f172a;
-  --card-bg: rgba(15, 23, 42, 0.7);
-  --card-border: rgba(255, 255, 255, 0.08);
-  --accent-gold: #f59e0b;
-  --accent-emerald: #10b981;
-  --accent-blue: #3b82f6;
-  --accent-purple: #7354da;
-  --text-main: #f8fafc;
-  --text-muted: #94a3b8;
-  
-  /* Dynamic business theme tokens (overwritten dynamically via style/props) */
-  --brand-primary: #10b981;
-  --brand-primary-glow: rgba(16, 185, 129, 0.35);
-  --brand-primary-soft: rgba(16, 185, 129, 0.12);
+  --bg-deep:      #020509;
+  --bg-base:      #070c17;
+  --bg-elevated:  #0c1526;
+  --bg-surface:   rgba(12, 22, 42, 0.75);
+  --bg-glass:     rgba(8, 15, 30, 0.85);
+
+  --text-primary: #f1f5f9;
+  --text-muted:   #64748b;
+  --text-faint:   #334155;
+
+  --border-faint:  rgba(255, 255, 255, 0.06);
+  --border-light:  rgba(255, 255, 255, 0.10);
+
+  --brand: #10b981;
+  --brand-glow: rgba(16, 185, 129, 0.30);
+  --brand-soft: rgba(16, 185, 129, 0.12);
+
+  --gold:   #f59e0b;
+  --blue:   #3b82f6;
+  --purple: #7354da;
+  --rose:   #ec4899;
+  --red:    #ef4444;
 }
 
+/* ══════════════════════════════════════════════════════════════
+   Base Reset & Body
+   ══════════════════════════════════════════════════════════════ */
+*, *::before, *::after { box-sizing: border-box; }
+
 body {
-  background: radial-gradient(circle at 10% 10%, #17112c 0%, #0c1020 40%, #050811 100%);
-  color: var(--text-main);
+  background: radial-gradient(ellipse at 15% 5%, #0e1828 0%, #070c17 50%, #020509 100%);
+  color: var(--text-primary);
   min-height: 100vh;
   margin: 0;
   font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
   overflow-x: hidden;
+  line-height: 1.5;
 }
 
-/* Custom Scrollbars */
-::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
-}
-::-webkit-scrollbar-track {
-  background: rgba(0, 0, 0, 0.15);
-}
-::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.16);
-  border-radius: 999px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.28);
+/* ── Custom Scrollbars ─────────────────────────────────────── */
+::-webkit-scrollbar          { width: 4px; height: 4px; }
+::-webkit-scrollbar-track    { background: transparent; }
+::-webkit-scrollbar-thumb    { background: rgba(255, 255, 255, 0.12); border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.22); }
+
+/* ── Input Focus Ring ──────────────────────────────────────── */
+input:focus, textarea:focus, select:focus {
+  outline: none;
+  border-color: rgba(16, 185, 129, 0.45) !important;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.12) !important;
 }
 
-/* Glassmorphism Classes */
-.glass-panel {
-  background: rgba(15, 23, 42, 0.75);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+/* ══════════════════════════════════════════════════════════════
+   Keyframe Animations
+   ══════════════════════════════════════════════════════════════ */
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
-
-.glass-card {
-  background: rgba(30, 41, 59, 0.5);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.glass-card:hover {
-  border-color: rgba(115, 84, 218, 0.35);
-  transform: translateY(-2px);
-  box-shadow: 0 12px 30px -10px rgba(0, 0, 0, 0.5);
-}
-
-/* Animations */
 @keyframes pulseGlow {
-  0%, 100% { opacity: 0.8; filter: drop-shadow(0 0 8px var(--brand-primary-glow, rgba(16, 185, 129, 0.4))); }
-  50% { opacity: 1; filter: drop-shadow(0 0 18px var(--brand-primary-glow, rgba(16, 185, 129, 0.8))); }
+  0%, 100% { opacity: 0.75; filter: drop-shadow(0 0 8px var(--brand-glow)); }
+  50%       { opacity: 1;    filter: drop-shadow(0 0 20px var(--brand-glow)); }
 }
-
 @keyframes shimmer {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
 }
-
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
-
 @keyframes slideDown {
-  from { opacity: 0; max-height: 0; transform: translateY(-8px); }
-  to { opacity: 1; max-height: 500px; transform: translateY(0); }
+  from { opacity: 0; max-height: 0;   transform: translateY(-6px); }
+  to   { opacity: 1; max-height: 600px; transform: translateY(0); }
+}
+@keyframes popIn {
+  0%   { transform: scale(0.94); opacity: 0; }
+  100% { transform: scale(1);    opacity: 1; }
+}
+@keyframes waPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); }
+  50%       { box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
 }
 
-.pulse-indicator {
-  animation: pulseGlow 2.5s infinite ease-in-out;
-}
+/* ══════════════════════════════════════════════════════════════
+   Animation Utility Classes
+   ══════════════════════════════════════════════════════════════ */
+.pulse-indicator     { animation: pulseGlow 2.5s infinite ease-in-out; }
+.fade-in-entry       { animation: fadeUp 0.22s ease-out forwards; }
+.accordion-drawer    { animation: slideDown 0.22s ease-out forwards; overflow: hidden; }
+.pop-in              { animation: popIn 0.18s ease-out forwards; }
 
 .dynamic-loading-skeleton {
-  background: linear-gradient(90deg, rgba(255,255,255,0.04) 25%, rgba(255,255,255,0.09) 50%, rgba(255,255,255,0.04) 75%);
+  background: linear-gradient(90deg,
+    rgba(255,255,255,0.03) 25%,
+    rgba(255,255,255,0.08) 50%,
+    rgba(255,255,255,0.03) 75%);
   background-size: 200% 100%;
-  animation: shimmer 1.6s infinite;
+  animation: shimmer 1.8s infinite;
+  border-radius: 6px;
 }
 
-.fade-in-entry {
-  animation: fadeIn 0.2s ease-out forwards;
+/* ══════════════════════════════════════════════════════════════
+   Glassmorphism Utility Classes
+   ══════════════════════════════════════════════════════════════ */
+.glass-panel {
+  background: rgba(8, 16, 32, 0.82);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border-faint);
+}
+.glass-card {
+  background: rgba(12, 22, 42, 0.65);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border-faint);
+  transition: border-color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
+}
+.glass-card:hover {
+  border-color: rgba(115, 84, 218, 0.30);
+  transform: translateY(-2px);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.45);
 }
 
-.accordion-drawer {
-  animation: slideDown 0.22s ease-out forwards;
-}
-
-/* Dynamic button hover & interactions */
+/* ══════════════════════════════════════════════════════════════
+   Interactive Button States
+   ══════════════════════════════════════════════════════════════ */
 .dynamic-btn {
-  transition: all 0.16s ease;
+  transition: filter 0.14s ease, transform 0.12s ease, box-shadow 0.14s ease;
 }
-.dynamic-btn:hover {
-  filter: brightness(1.1);
-  transform: translateY(-1px);
-}
-.dynamic-btn:active {
-  transform: translateY(0);
+.dynamic-btn:hover  { filter: brightness(1.12); transform: translateY(-1px); }
+.dynamic-btn:active { filter: brightness(0.95); transform: translateY(0px); }
+
+/* ══════════════════════════════════════════════════════════════
+   Header Layout
+   ══════════════════════════════════════════════════════════════ */
+.wa-top-header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
 }
 
-/* Responsive Rules for Mobile (< 768px) */
+.wa-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   Nav Bar
+   ══════════════════════════════════════════════════════════════ */
+.wa-nav-bar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.wa-nav-bar::-webkit-scrollbar { display: none; }
+
+.wa-nav-btn {
+  white-space: nowrap;
+}
+.wa-nav-btn:hover {
+  color: var(--text-primary) !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   Connect View – QR card shine animation
+   ══════════════════════════════════════════════════════════════ */
+.qr-shine-border {
+  position: relative;
+}
+.qr-shine-border::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: 17px;
+  background: linear-gradient(135deg,
+    rgba(16, 185, 129, 0.6) 0%,
+    rgba(16, 185, 129, 0.0) 40%,
+    rgba(16, 185, 129, 0.0) 60%,
+    rgba(59, 130, 246, 0.5) 100%);
+  z-index: -1;
+  animation: pulseGlow 3s infinite ease-in-out;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   Thread List hover effect
+   ══════════════════════════════════════════════════════════════ */
+.thread-card-hover:hover {
+  background: rgba(255, 255, 255, 0.03) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   Product card hover
+   ══════════════════════════════════════════════════════════════ */
+.product-card-hover:hover {
+  border-color: rgba(245, 158, 11, 0.3) !important;
+  transform: translateY(-2px);
+  box-shadow: 0 12px 32px rgba(0,0,0,0.4);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   Admin table row highlight
+   ══════════════════════════════════════════════════════════════ */
+.admin-biz-row:hover {
+  background: rgba(255, 255, 255, 0.025) !important;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   WhatsApp dot animation (connection pill)
+   ══════════════════════════════════════════════════════════════ */
+.wa-live-dot {
+  animation: waPulse 2s infinite;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   Modal entrance
+   ══════════════════════════════════════════════════════════════ */
+.modal-content-enter {
+  animation: popIn 0.2s ease-out forwards;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   Instagram button in WhatsApp header (responsive)
+   ══════════════════════════════════════════════════════════════ */
+.header-wa-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: filter 0.15s ease;
+  white-space: nowrap;
+}
+.header-wa-pill:hover { filter: brightness(1.1); }
+
+/* ══════════════════════════════════════════════════════════════
+   Mobile Responsiveness (≤ 768px)
+   ══════════════════════════════════════════════════════════════ */
 @media (max-width: 768px) {
   .wa-top-header {
     flex-direction: column !important;
     align-items: flex-start !important;
-    gap: 12px !important;
+    gap: 10px !important;
     padding: 12px 14px !important;
   }
+
   .wa-top-actions {
     width: 100% !important;
-    flex-wrap: wrap !important;
+    justify-content: flex-start !important;
     gap: 6px !important;
   }
+
+  /* Hide verbose labels on mobile, show shorter versions */
+  .wa-action-long-label   { display: none !important; }
+  .wa-action-short-label  { display: inline !important; }
+
   .wa-nav-bar {
     overflow-x: auto !important;
     -webkit-overflow-scrolling: touch !important;
-    padding: 6px 10px !important;
+    padding: 5px 10px !important;
+    gap: 3px !important;
   }
+
   .wa-nav-btn {
-    white-space: nowrap !important;
-    padding: 7px 12px !important;
-    font-size: 12px !important;
+    padding: 7px 11px !important;
+    font-size: 11.5px !important;
   }
-  .wa-inbox-grid {
+
+  /* Full responsive mobile chat view */
+  .wa-inbox-layout {
     flex-direction: column !important;
-    height: auto !important;
-    min-height: calc(100vh - 120px) !important;
+    height: calc(100vh - 120px) !important;
   }
+
+  .wa-inbox-sidebar.wa-hide-on-mobile {
+    display: none !important;
+  }
+
+  .wa-chat-panel.wa-hide-on-mobile {
+    display: none !important;
+  }
+
   .wa-inbox-sidebar {
     width: 100% !important;
-    max-height: 280px !important;
+    flex: 1 1 100% !important;
+    border-right: none !important;
+    height: 100% !important;
   }
+
+  .wa-chat-panel {
+    width: 100% !important;
+    flex: 1 1 100% !important;
+    min-width: 0 !important;
+    display: flex !important;
+    height: 100% !important;
+  }
+
+  .wa-mobile-back-btn {
+    display: inline-flex !important;
+  }
+}
+
+@media (min-width: 769px) {
+  .wa-mobile-back-btn {
+    display: none !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .wa-kpi-products { display: none !important; }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   Dark select / option override (force dark bg in Chrome)
+   ══════════════════════════════════════════════════════════════ */
+select option {
+  background: #0d1b32;
+  color: #f1f5f9;
 }
