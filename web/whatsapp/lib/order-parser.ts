@@ -116,8 +116,8 @@ export function extractOrdersFromThread(
           } else if (
             line.length > 2 &&
             line.length < 35 &&
-            !/(?:#|cross|main|street|road|pin|cash|upi|order|watch|titan)/i.test(line) &&
-            !/^(yes|no|confirm|proceed|ok|okay|send|menu|share|hi|hii|hello|thanks|thank you|delighted|perfect|order|cash|upi|which)\b/i.test(
+            !/(?:#|cross|main|street|road|pin|cash|upi|order|watch|titan|basic|piece|need|want)/i.test(line) &&
+            !/^(yes|yess|no|confirm|proceed|ok|okay|send|menu|share|hi|hii|hello|thanks|thank you|delighted|perfect|order|cash|upi|which|please|pls)\b/i.test(
               line
             ) &&
             /^[A-Za-z\s.]+$/.test(line)
@@ -128,7 +128,7 @@ export function extractOrdersFromThread(
       }
     }
 
-    const nameFromGreeting = m.text.match(/(?:Thank you|Perfect|Hello),\s*([A-Za-z\s.]+?)[.!🙏]/i);
+    const nameFromGreeting = m.text.match(/(?:Thank you|Perfect|Hello),\s*([A-Za-z\s.]+?)[.!🙏🌟✨]/i);
     if ((!custName || custName === 'Customer') && nameFromGreeting) {
       custName = nameFromGreeting[1].trim();
     }
@@ -146,7 +146,7 @@ export function extractOrdersFromThread(
     const paymentMode: 'COD' | 'UPI' = isUpi ? 'UPI' : 'COD';
     const orderStatus = loc && loc.pincode ? 'ready_for_dispatch' : 'confirmed';
 
-    // ── Check A: Bulk Order in this window ──
+    // ── Check A: Bulk Multi-Item Order (Itemized lines) ──
     const lineRegex = /(?:(\d+)\.\s*)?\*?([A-Za-z0-9\s-]+?)\*?(?:\s*\((?:Qty:?\s*)?(\d+)\)|\s*[×x]\s*(\d+)|\s*–\s*(\d+)\s*pieces)(?:\s*(?:@|—|–|-)\s*₹?\s*([0-9,]+))?/gi;
     const bulkItems: WAOrderItem[] = [];
     let match: RegExpExecArray | null;
@@ -175,7 +175,7 @@ export function extractOrdersFromThread(
       }
     }
 
-    if (bulkItems.length > 1 || (bulkItems.length === 1 && bulkItems[0].quantity > 1)) {
+    if (bulkItems.length > 1) {
       const totalQty = bulkItems.reduce((s, b) => s + b.quantity, 0);
       const subtotal = bulkItems.reduce((s, b) => s + b.totalPrice, 0);
       const discount = hasDiscount ? Math.round(subtotal * 0.1) : 0;
@@ -183,9 +183,7 @@ export function extractOrdersFromThread(
         /(?:Final Payable|Total Payable|Grand Total|Payable)\s*(?::|—|-)?\s*₹?\s*([0-9,]+)/i
       );
       const amount = payableMatch ? parseInt(payableMatch[1].replace(/,/g, ''), 10) : subtotal - discount;
-      const summaryName = bulkItems.length === 1
-        ? bulkItems[0].productName
-        : bulkItems.map((b) => `${b.productName} (x${b.quantity})`).join(', ');
+      const summaryName = bulkItems.map((b) => `${b.productName} (x${b.quantity})`).join(', ');
 
       if (!confirmedOrders.some((co) => co.amount === amount && co.quantity === totalQty)) {
         confirmedOrders.push({
@@ -208,21 +206,37 @@ export function extractOrdersFromThread(
       }
     }
 
-    // ── Check B: Single Timepiece in this confirmation ──
-    // Search the confirmation message itself FIRST so we get the exact watch confirmed
+    // ── Check B: Timepiece with Quantity (e.g. "5 × Titan Neo..." or "Titan Neo (Qty: 5)" or single piece) ──
     let matchedCatItem: CatalogItem | undefined = undefined;
+    let detectedQty = 1;
 
-    for (const catItem of catalog) {
-      const slug = catItem.id.replace('titan-', '').replace(/-/g, ' ');
-      if (
-        m.text.toLowerCase().includes(catItem.name.toLowerCase()) ||
-        m.text.toLowerCase().includes(slug)
-      ) {
-        matchedCatItem = catItem;
-        break;
+    // 1. Check if quantity is prefixed e.g. "5 × Titan Neo Minimalist Classic Brown" or "5x Titan Neo"
+    const prefixQtyMatch = m.text.match(/(\d+)\s*[\u00d7\u202f\s*xX]\s*([A-Za-z0-9\s-]+?)(?:\s*\(|\s*is\s*now|\s*total|,|$)/i);
+    if (prefixQtyMatch) {
+      const q = parseInt(prefixQtyMatch[1], 10);
+      const nameCand = prefixQtyMatch[2].trim().toLowerCase();
+      const found = catalog.find((c) => nameCand.includes(c.name.toLowerCase()) || c.name.toLowerCase().includes(nameCand));
+      if (found) {
+        detectedQty = q;
+        matchedCatItem = found;
       }
     }
 
+    // 2. Direct name match in confirmation message
+    if (!matchedCatItem) {
+      for (const catItem of catalog) {
+        const slug = catItem.id.replace('titan-', '').replace(/-/g, ' ');
+        if (
+          m.text.toLowerCase().includes(catItem.name.toLowerCase()) ||
+          m.text.toLowerCase().includes(slug)
+        ) {
+          matchedCatItem = catItem;
+          break;
+        }
+      }
+    }
+
+    // 3. Fallback to window search if not in confirmation message
     if (!matchedCatItem) {
       for (const catItem of catalog) {
         const slug = catItem.id.replace('titan-', '').replace(/-/g, ' ');
@@ -236,28 +250,45 @@ export function extractOrdersFromThread(
       }
     }
 
-    if (matchedCatItem) {
-      const discount = hasDiscount ? Math.round(matchedCatItem.price * 0.1) : 0;
-      const amount = matchedCatItem.price - discount;
+    // 4. Check if customer requested specific quantity in window (e.g. "I need 5 pieces" or "(Qty: 5)")
+    if (detectedQty === 1) {
+      const windowQtyMatch =
+        windowText.match(/(?:need|want|order|take|give me)?\s*(\d+)\s*(?:pieces?|pcs?|watches?|units?|items?)\b/i) ||
+        windowText.match(/\(Qty:?\s*(\d+)\)/i);
+      if (windowQtyMatch) {
+        detectedQty = parseInt(windowQtyMatch[1], 10);
+      }
+    }
 
-      if (!confirmedOrders.some((co) => co.productId === matchedCatItem!.id && co.amount === amount)) {
+    if (matchedCatItem) {
+      const unitPrice = matchedCatItem.price;
+      const subtotal = unitPrice * detectedQty;
+      const discount = hasDiscount ? Math.round(subtotal * 0.1) : 0;
+
+      // Check for explicit total in confirmation message e.g. "(total ₹17,475)"
+      const totalMatch = m.text.match(/(?:total|amount|payable)\s*(?:is|comes to|of)?\s*[:—–-]?\s*₹?\s*([0-9,]+)/i);
+      const amount = totalMatch ? parseInt(totalMatch[1].replace(/,/g, ''), 10) : subtotal - discount;
+
+      const orderSummaryName = detectedQty > 1 ? `${matchedCatItem.name} (x${detectedQty})` : matchedCatItem.name;
+
+      if (!confirmedOrders.some((co) => co.productId === matchedCatItem!.id && co.amount === amount && co.quantity === detectedQty)) {
         confirmedOrders.push({
-          type: 'single',
+          type: detectedQty > 1 ? 'bulk' : 'single',
           customerName: custName,
           customerPhone: custPhone,
-          productName: matchedCatItem.name,
+          productName: orderSummaryName,
           productId: matchedCatItem.id,
           items: [
             {
               productId: matchedCatItem.id,
               productName: matchedCatItem.name,
-              quantity: 1,
-              unitPrice: matchedCatItem.price,
-              totalPrice: matchedCatItem.price,
+              quantity: detectedQty,
+              unitPrice,
+              totalPrice: subtotal,
             },
           ],
-          quantity: 1,
-          subtotal: matchedCatItem.price,
+          quantity: detectedQty,
+          subtotal,
           discountAmount: discount,
           discountCode: hasDiscount ? 'TITAN10' : undefined,
           amount,

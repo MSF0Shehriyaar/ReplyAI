@@ -31,12 +31,16 @@ import { createTursoAdapter } from './turso';
 const env: any = typeof process !== 'undefined' ? process.env : {};
 
 export class AppError extends Error {
+  public status: number;
+  public retryable: boolean;
   constructor(
     message: string,
-    public status = 400,
-    public retryable = false
+    status = 400,
+    retryable = false
   ) {
     super(message);
+    this.status = status;
+    this.retryable = retryable;
   }
 }
 
