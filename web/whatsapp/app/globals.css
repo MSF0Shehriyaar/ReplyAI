@@ -8,63 +8,144 @@
   --accent-gold: #f59e0b;
   --accent-emerald: #10b981;
   --accent-blue: #3b82f6;
+  --accent-purple: #7354da;
   --text-main: #f8fafc;
   --text-muted: #94a3b8;
+  
+  /* Dynamic business theme tokens (overwritten dynamically via style/props) */
+  --brand-primary: #10b981;
+  --brand-primary-glow: rgba(16, 185, 129, 0.35);
+  --brand-primary-soft: rgba(16, 185, 129, 0.12);
 }
 
 body {
-  background: radial-gradient(circle at 15% 15%, #0f1e36 0%, #080d19 45%, #04070e 100%);
+  background: radial-gradient(circle at 10% 10%, #17112c 0%, #0c1020 40%, #050811 100%);
   color: var(--text-main);
   min-height: 100vh;
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   overflow-x: hidden;
 }
 
-/* Custom Scrollbar */
+/* Custom Scrollbars */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 ::-webkit-scrollbar-track {
-  background: rgba(0, 0, 0, 0.2);
+  background: rgba(0, 0, 0, 0.15);
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.16);
   border-radius: 999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.28);
 }
 
 /* Glassmorphism Classes */
 .glass-panel {
-  background: rgba(15, 23, 42, 0.65);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  background: rgba(15, 23, 42, 0.75);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .glass-card {
   background: rgba(30, 41, 59, 0.5);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
   border: 1px solid rgba(255, 255, 255, 0.06);
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .glass-card:hover {
-  border-color: rgba(245, 158, 11, 0.3);
+  border-color: rgba(115, 84, 218, 0.35);
   transform: translateY(-2px);
   box-shadow: 0 12px 30px -10px rgba(0, 0, 0, 0.5);
 }
 
 /* Animations */
 @keyframes pulseGlow {
-  0%, 100% { opacity: 0.8; filter: drop-shadow(0 0 8px rgba(16, 185, 129, 0.4)); }
-  50% { opacity: 1; filter: drop-shadow(0 0 16px rgba(16, 185, 129, 0.8)); }
+  0%, 100% { opacity: 0.8; filter: drop-shadow(0 0 8px var(--brand-primary-glow, rgba(16, 185, 129, 0.4))); }
+  50% { opacity: 1; filter: drop-shadow(0 0 18px var(--brand-primary-glow, rgba(16, 185, 129, 0.8))); }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideDown {
+  from { opacity: 0; max-height: 0; transform: translateY(-8px); }
+  to { opacity: 1; max-height: 500px; transform: translateY(0); }
 }
 
 .pulse-indicator {
   animation: pulseGlow 2.5s infinite ease-in-out;
+}
+
+.dynamic-loading-skeleton {
+  background: linear-gradient(90deg, rgba(255,255,255,0.04) 25%, rgba(255,255,255,0.09) 50%, rgba(255,255,255,0.04) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.6s infinite;
+}
+
+.fade-in-entry {
+  animation: fadeIn 0.2s ease-out forwards;
+}
+
+.accordion-drawer {
+  animation: slideDown 0.22s ease-out forwards;
+}
+
+/* Dynamic button hover & interactions */
+.dynamic-btn {
+  transition: all 0.16s ease;
+}
+.dynamic-btn:hover {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+}
+.dynamic-btn:active {
+  transform: translateY(0);
+}
+
+/* Responsive Rules for Mobile (< 768px) */
+@media (max-width: 768px) {
+  .wa-top-header {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 12px !important;
+    padding: 12px 14px !important;
+  }
+  .wa-top-actions {
+    width: 100% !important;
+    flex-wrap: wrap !important;
+    gap: 6px !important;
+  }
+  .wa-nav-bar {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    padding: 6px 10px !important;
+  }
+  .wa-nav-btn {
+    white-space: nowrap !important;
+    padding: 7px 12px !important;
+    font-size: 12px !important;
+  }
+  .wa-inbox-grid {
+    flex-direction: column !important;
+    height: auto !important;
+    min-height: calc(100vh - 120px) !important;
+  }
+  .wa-inbox-sidebar {
+    width: 100% !important;
+    max-height: 280px !important;
+  }
 }

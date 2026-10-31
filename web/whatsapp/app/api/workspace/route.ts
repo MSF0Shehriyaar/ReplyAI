@@ -28,46 +28,187 @@ import {
 } from '@/lib/server';
 import { providerConfig } from '@/lib/provider-config';
 import { queueStatus, processNextJob } from '@/lib/queue';
-import { waDefaults, type WASettings } from '@/lib/model';
+import { waDefaults, type WASettings, type RegisteredBusiness, type TursoUsageStats } from '@/lib/model';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-// GET — Load entire workspace state
-export async function GET() {
+const SECRET_SIGN_KEY = 'nina_secure_owner_auth_key_2026';
+
+async function verifyAdminToken(token: string): Promise<boolean> {
   try {
-    await initDatabase();
-    const [s, threads, orders, connections, logs, analytics, queue, usage] = await Promise.all([
-      settings(),
-      allThreads(),
-      allOrders(),
-      connectionStatus(),
-      db()
-        .prepare('SELECT * FROM wa_activity ORDER BY created DESC LIMIT 100')
-        .all()
-        .then((r: any) => r?.results || []),
-      computeAnalytics(),
-      queueStatus(),
-      readState('wa_usage', { calls: 0, tokens: 0, sent: 0 }),
+    const [payloadB64, sigHex] = token.split('.');
+    if (!payloadB64 || !sigHex) return false;
+    const payload = atob(payloadB64);
+    const enc = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+      'raw',
+      enc.encode(SECRET_SIGN_KEY),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['verify']
+    );
+    const sigBytes = new Uint8Array(sigHex.match(/../g)!.map((h) => parseInt(h, 16)));
+    const valid = await crypto.subtle.verify('HMAC', key, sigBytes, enc.encode(payload));
+    if (!valid) return false;
+    const data = JSON.parse(payload);
+    if (data.exp && Date.now() > data.exp) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function signAdminToken(user: string = 'nina_admin'): Promise<string> {
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw',
+    enc.encode(SECRET_SIGN_KEY),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  const now = Date.now();
+  const payload = JSON.stringify({ user, iat: now, exp: now + 30 * 86400000 });
+  const sig = await crypto.subtle.sign('HMAC', key, enc.encode(payload));
+  const sigHex = Array.from(new Uint8Array(sig)).map((b) => b.toString(16).padStart(2, '0')).join('');
+  return `${btoa(payload)}.${sigHex}`;
+}
+
+const defaultRegisteredAccounts: RegisteredBusiness[] = [
+  {
+    id: 'biz_titan_watches',
+    name: 'Titan Watches',
+    ownerName: 'Nina Kurain',
+    phone: '+91 99000 12345',
+    category: 'Luxury Watches & Boutique',
+    tagline: 'Timeless Craftsmanship, Modern Innovation',
+    themeColor: '#10b981',
+    createdAt: 1729000000000,
+    lastActive: Date.now(),
+    deviceStatus: 'connected',
+    status: 'active',
+  },
+];
+
+async function getTursoStats(): Promise<TursoUsageStats> {
+  try {
+    const d = db();
+    const [tRow, oRow, cRow, jRow, aRow, sRow] = await Promise.all([
+      d.prepare('SELECT count(*) as cnt FROM wa_threads').first<{ cnt: number }>().catch(() => ({ cnt: 0 })),
+      d.prepare('SELECT count(*) as cnt FROM wa_orders').first<{ cnt: number }>().catch(() => ({ cnt: 0 })),
+      d.prepare('SELECT count(*) as cnt FROM wa_customers').first<{ cnt: number }>().catch(() => ({ cnt: 0 })),
+      d.prepare('SELECT count(*) as cnt FROM wa_jobs').first<{ cnt: number }>().catch(() => ({ cnt: 0 })),
+      d.prepare('SELECT count(*) as cnt FROM wa_activity').first<{ cnt: number }>().catch(() => ({ cnt: 0 })),
+      d.prepare('SELECT count(*) as cnt FROM wa_state').first<{ cnt: number }>().catch(() => ({ cnt: 0 })),
     ]);
 
-    return NextResponse.json({
-      settings: s,
-      threads,
-      orders,
-      connections,
-      logs,
-      analytics,
-      queue,
-      usage,
-      storageReady: true,
-    }, {
-      headers: {
-        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
-        Pragma: 'no-cache',
-        Expires: '0',
+    const threadsCount = Number(tRow?.cnt || 0);
+    const ordersCount = Number(oRow?.cnt || 0);
+    const customersCount = Number(cRow?.cnt || 0);
+    const jobsCount = Number(jRow?.cnt || 0);
+    const activityCount = Number(aRow?.cnt || 0);
+    const stateCount = Number(sRow?.cnt || 0);
+
+    const totalRows = threadsCount + ordersCount + customersCount + jobsCount + activityCount + stateCount;
+    const estimatedBytes =
+      threadsCount * 4096 +
+      ordersCount * 1536 +
+      customersCount * 1024 +
+      jobsCount * 1024 +
+      activityCount * 512 +
+      stateCount * 10240;
+    const storageEstimateKb = Math.round(estimatedBytes / 1024);
+    const storageEstimateMb = (storageEstimateKb / 1024).toFixed(2);
+
+    return {
+      connected: true,
+      provider: 'Turso LibSQL (Cloud Distributed)',
+      totalRows,
+      tableCounts: {
+        threads: threadsCount,
+        orders: ordersCount,
+        customers: customersCount,
+        jobs: jobsCount,
+        activity: activityCount,
+        state: stateCount,
       },
-    });
+      storageEstimateKb,
+      storageEstimateMb,
+      health: 'Operational (Turso LibSQL Cloud)',
+      lastChecked: Date.now(),
+    };
+  } catch (e: any) {
+    return {
+      connected: false,
+      provider: 'Turso LibSQL',
+      totalRows: 0,
+      tableCounts: { threads: 0, orders: 0, customers: 0, jobs: 0, activity: 0, state: 0 },
+      storageEstimateKb: 0,
+      storageEstimateMb: '0.00',
+      health: `Degraded: ${e?.message || 'Check credentials'}`,
+      lastChecked: Date.now(),
+    };
+  }
+}
+
+// GET — Load entire workspace state
+export async function GET(request: NextRequest) {
+  try {
+    await initDatabase();
+    const ninaCookie =
+      request.cookies.get('nina_owner_session')?.value || request.cookies.get('wa_admin_session')?.value;
+    const isNinaAdmin = ninaCookie ? await verifyAdminToken(ninaCookie) : false;
+
+    const [s, threads, orders, connections, logs, analytics, queue, usage, tursoStats, registeredAccounts, activeAccountId] =
+      await Promise.all([
+        settings(),
+        allThreads(),
+        allOrders(),
+        connectionStatus(),
+        db()
+          .prepare('SELECT * FROM wa_activity ORDER BY created DESC LIMIT 100')
+          .all()
+          .then((r: any) => r?.results || []),
+        computeAnalytics(),
+        queueStatus(),
+        readState('wa_usage', { calls: 0, tokens: 0, sent: 0 }),
+        getTursoStats(),
+        readState<RegisteredBusiness[]>('wa_registered_accounts', defaultRegisteredAccounts),
+        readState<string>('wa_active_account_id', 'biz_titan_watches'),
+      ]);
+
+    // Update dynamic stats on registered accounts
+    const enrichedAccounts = registeredAccounts.map((acc) => ({
+      ...acc,
+      threadCount: threads.length,
+      orderCount: orders.length,
+    }));
+
+    return NextResponse.json(
+      {
+        settings: s,
+        threads,
+        orders,
+        connections,
+        logs,
+        analytics,
+        queue,
+        usage,
+        storageReady: true,
+        tursoStats,
+        isNinaAdmin,
+        registeredAccounts: enrichedAccounts,
+        activeAccountId,
+      },
+      {
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+          Pragma: 'no-cache',
+          Expires: '0',
+        },
+      }
+    );
   } catch (e) {
     return errorResponse(e);
   }
@@ -331,6 +472,113 @@ export async function POST(request: NextRequest) {
       await saveOrder(order);
       await audit('Order status updated', `Order ${order.id} status changed to ${order.orderStatus}`);
       return NextResponse.json({ ok: true, orders: await allOrders() });
+    }
+
+    // ── Nina Master Admin Authentication ────────────────────────────
+    if (action === 'admin-login') {
+      const pin = String(body.pin || '').trim();
+      if (pin === '123456' || pin === 'admin' || pin === 'nina' || pin === 'nina123') {
+        const token = await signAdminToken('nina_master_owner');
+        const res = NextResponse.json({ ok: true, isNinaAdmin: true });
+        res.cookies.set('wa_admin_session', token, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'lax',
+          maxAge: 30 * 86400,
+          path: '/',
+        });
+        await audit('Admin login', 'Nina Master Admin authenticated into WhatsApp Automation');
+        return res;
+      }
+      throw new AppError('Incorrect Nina Master Admin PIN.', 401);
+    }
+
+    if (action === 'admin-logout') {
+      const res = NextResponse.json({ ok: true, isNinaAdmin: false });
+      res.cookies.delete('wa_admin_session');
+      res.cookies.delete('nina_owner_session');
+      await audit('Admin logout', 'Nina Master Admin signed out');
+      return res;
+    }
+
+    // ── Client Business Management (Multi-tenant) ─────────────────────
+    if (action === 'register-business') {
+      const accounts = await readState<RegisteredBusiness[]>('wa_registered_accounts', defaultRegisteredAccounts);
+      const bizId = `biz_${Date.now()}`;
+      const newBiz: RegisteredBusiness = {
+        id: bizId,
+        name: body.name?.trim() || 'My Business Store',
+        ownerName: body.ownerName?.trim() || 'Business Owner',
+        phone: body.phone?.trim() || '+91 99000 00000',
+        category: body.category?.trim() || 'Retail & Commerce',
+        tagline: body.tagline?.trim() || 'Exclusive WhatsApp Automated Ordering',
+        themeColor: body.themeColor?.trim() || '#10b981',
+        createdAt: Date.now(),
+        lastActive: Date.now(),
+        deviceStatus: 'disconnected',
+        status: 'active',
+      };
+      accounts.unshift(newBiz);
+      await writeState('wa_registered_accounts', accounts);
+      await writeState('wa_active_account_id', newBiz.id);
+
+      // Auto update current settings
+      const currentS = await settings();
+      currentS.businessName = newBiz.name;
+      currentS.tagline = newBiz.tagline;
+      currentS.industry = newBiz.category;
+      currentS.category = newBiz.category;
+      await writeState('wa_settings', currentS);
+
+      await audit('Business registered', `Client business "${newBiz.name}" registered in WhatsApp automation`);
+      return NextResponse.json({
+        ok: true,
+        business: newBiz,
+        registeredAccounts: accounts,
+        settings: currentS,
+        activeAccountId: newBiz.id,
+      });
+    }
+
+    if (action === 'switch-business') {
+      const accounts = await readState<RegisteredBusiness[]>('wa_registered_accounts', defaultRegisteredAccounts);
+      const target = accounts.find((a) => a.id === body.businessId);
+      if (!target) throw new AppError('Business not found', 404);
+
+      target.lastActive = Date.now();
+      await writeState('wa_active_account_id', target.id);
+      await writeState('wa_registered_accounts', accounts);
+
+      const currentS = await settings();
+      currentS.businessName = target.name;
+      currentS.tagline = target.tagline;
+      currentS.industry = target.category;
+      currentS.category = target.category;
+      await writeState('wa_settings', currentS);
+
+      await audit('Business switched', `Active business switched to "${target.name}"`);
+      return NextResponse.json({
+        ok: true,
+        activeAccountId: target.id,
+        business: target,
+        settings: currentS,
+        registeredAccounts: accounts,
+      });
+    }
+
+    if (action === 'delete-business') {
+      let accounts = await readState<RegisteredBusiness[]>('wa_registered_accounts', defaultRegisteredAccounts);
+      accounts = accounts.filter((a) => a.id !== body.businessId);
+      if (!accounts.length) accounts = defaultRegisteredAccounts;
+      await writeState('wa_registered_accounts', accounts);
+      await audit('Business deleted', `Business ${body.businessId} removed by Nina Admin`);
+      return NextResponse.json({ ok: true, registeredAccounts: accounts });
+    }
+
+    // ── Turso DB Live Stats ──────────────────────────────────────────
+    if (action === 'refresh-turso-stats') {
+      const tursoStats = await getTursoStats();
+      return NextResponse.json({ ok: true, tursoStats });
     }
 
     // ── Wipe / Reset Database ───────────────────────────────────────

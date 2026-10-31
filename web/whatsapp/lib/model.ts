@@ -164,6 +164,7 @@ export type WASettings = {
   // ── Business Profile (Any Business) ───────────────────────────────────
   businessName: string;
   industry: string;
+  category?: string;
   businessDescription: string;
   tagline: string;
   website: string;
@@ -462,6 +463,40 @@ export type WAThread = {
   customerProfile?: CustomerProfile;
 };
 
+export type TursoUsageStats = {
+  connected: boolean;
+  provider: string;
+  totalRows: number;
+  tableCounts: {
+    threads: number;
+    orders: number;
+    customers: number;
+    jobs: number;
+    activity: number;
+    state: number;
+  };
+  storageEstimateKb: number;
+  storageEstimateMb: string;
+  health: string;
+  lastChecked: number;
+};
+
+export type RegisteredBusiness = {
+  id: string;
+  name: string;
+  ownerName: string;
+  phone: string;
+  category: string;
+  tagline: string;
+  themeColor: string; // Dynamic hex color: '#10b981', '#7354da', '#f59e0b', '#3b82f6', '#ec4899'
+  createdAt: number;
+  lastActive: number;
+  deviceStatus: 'connected' | 'disconnected' | 'pairing';
+  threadCount?: number;
+  orderCount?: number;
+  status: 'active' | 'free' | 'vip';
+};
+
 export type WAWorkspace = {
   settings: WASettings;
   threads: WAThread[];
@@ -471,6 +506,10 @@ export type WAWorkspace = {
   analytics: WAAnalytics;
   usage: { calls: number; tokens: number; sent: number };
   storageReady: boolean;
+  tursoStats?: TursoUsageStats;
+  isNinaAdmin?: boolean;
+  registeredAccounts?: RegisteredBusiness[];
+  activeAccountId?: string;
 };
 
 export const initialWAWorkspace: WAWorkspace = {
@@ -498,4 +537,24 @@ export const initialWAWorkspace: WAWorkspace = {
   },
   usage: { calls: 0, tokens: 0, sent: 0 },
   storageReady: false,
+  tursoStats: {
+    connected: true,
+    provider: 'Turso LibSQL (Cloud Distributed)',
+    totalRows: 0,
+    tableCounts: {
+      threads: 0,
+      orders: 0,
+      customers: 0,
+      jobs: 0,
+      activity: 0,
+      state: 0,
+    },
+    storageEstimateKb: 0,
+    storageEstimateMb: '0.00',
+    health: 'Operational (Turso LibSQL)',
+    lastChecked: Date.now(),
+  },
+  isNinaAdmin: false,
+  registeredAccounts: [],
+  activeAccountId: 'biz_titan_watches',
 };

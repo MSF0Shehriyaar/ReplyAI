@@ -75,13 +75,15 @@ function getGoogleMapsDirectionsUrl(loc?: DeliveryLocation | null): string {
 
 export default function WhatsAppCommandCenter() {
   const [workspace, setWorkspace] = useState<WAWorkspace>(initialWAWorkspace);
-  const [activeTab, setActiveTab] = useState<'inbox' | 'orders' | 'catalog' | 'business' | 'brain' | 'analytics' | 'connect'>('inbox');
+  const [activeTab, setActiveTab] = useState<'inbox' | 'orders' | 'catalog' | 'business' | 'brain' | 'analytics' | 'connect' | 'admin'>('inbox');
   const [selectedThread, setSelectedThread] = useState<WAThread | null>(null);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [showBusinessModal, setShowBusinessModal] = useState(false);
+  const [showAdminLoginModal, setShowAdminLoginModal] = useState(false);
+  const [showOnboardModal, setShowOnboardModal] = useState(false);
   const [waStatus, setWaStatus] = useState<any>(null);
 
   const refresh = useCallback(async () => {
@@ -145,6 +147,12 @@ export default function WhatsAppCommandCenter() {
     catalog: workspace.settings?.catalog?.length ? workspace.settings.catalog : titanWatchesCatalog,
   };
 
+  const activeBiz = (workspace.registeredAccounts || []).find((b) => b.id === workspace.activeAccountId) || {
+    themeColor: '#10b981',
+    name: currentSettings.businessName,
+  };
+  const themeColor = activeBiz.themeColor || '#10b981';
+
   // Filter threads
   const filteredThreads = (workspace.threads || []).filter((t) => {
     if (filterStatus !== 'all' && t.status !== filterStatus) return false;
@@ -162,13 +170,42 @@ export default function WhatsAppCommandCenter() {
   if (loading) {
     return (
       <div style={ui.loadingScreen}>
-        <div style={ui.spinner} />
-        <p style={{ color: '#94a3b8', marginTop: 18, fontWeight: 500, letterSpacing: 0.5 }}>
-          Initializing {currentSettings.businessName} Concierge Engine...
-        </p>
+        <div
+          style={{
+            ...ui.spinner,
+            borderTopColor: themeColor,
+            boxShadow: `0 0 24px ${themeColor}50`,
+          }}
+        />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 18 }}>
+          <span
+            style={{
+              width: 9,
+              height: 9,
+              borderRadius: '50%',
+              background: themeColor,
+              boxShadow: `0 0 10px ${themeColor}`,
+              display: 'inline-block',
+            }}
+          />
+          <p style={{ color: '#94a3b8', margin: 0, fontWeight: 500, letterSpacing: 0.5 }}>
+            Initializing {currentSettings.businessName} Concierge Engine...
+          </p>
+        </div>
       </div>
     );
   }
+
+  const navTabs = [
+    { id: 'inbox', label: 'Live Inbox', icon: '💬' },
+    { id: 'orders', label: 'Orders & Live Map', icon: '📍' },
+    { id: 'catalog', label: 'Watches & Catalog', icon: '🛍️' },
+    { id: 'business', label: 'Store Profile', icon: '🏢' },
+    { id: 'brain', label: 'AI Behavior & Tone', icon: '🧠' },
+    { id: 'analytics', label: 'Analytics & Leads', icon: '📊' },
+    { id: 'connect', label: 'WhatsApp Device', icon: '📱' },
+    ...(workspace.isNinaAdmin ? [{ id: 'admin', label: 'Nina Master Admin', icon: '👑' }] : []),
+  ];
 
   return (
     <div style={ui.root}>
@@ -179,11 +216,29 @@ export default function WhatsAppCommandCenter() {
       <header style={ui.header}>
         <div style={ui.headerLeft}>
           <div style={ui.brandGroup}>
-            <div style={ui.brandIcon}>⏱️</div>
+            <div
+              style={{
+                ...ui.brandIcon,
+                borderColor: `${themeColor}60`,
+                background: `linear-gradient(135deg, ${themeColor}25 0%, rgba(15, 23, 42, 0.8) 100%)`,
+                boxShadow: `0 0 14px ${themeColor}30`,
+              }}
+            >
+              ⏱️
+            </div>
             <div>
               <div style={ui.brandTitleRow}>
                 <span style={ui.brandTitle}>{currentSettings.businessName}</span>
-                <button onClick={() => setShowBusinessModal(true)} style={ui.changeBusinessBtn} title="Customize business profile">
+                <button
+                  onClick={() => setShowBusinessModal(true)}
+                  style={{
+                    ...ui.changeBusinessBtn,
+                    borderColor: `${themeColor}40`,
+                    background: `${themeColor}12`,
+                    color: themeColor,
+                  }}
+                  title="Customize business profile"
+                >
                   Switch / Edit Business
                 </button>
               </div>
@@ -217,28 +272,97 @@ export default function WhatsAppCommandCenter() {
             <span>🛍️ Visual Catalog Boutique ↗</span>
           </a>
 
-          <a
-            href="https://automation.ninakurainservices.in"
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              background: 'rgba(115, 84, 218, 0.15)',
-              border: '1px solid rgba(115, 84, 218, 0.4)',
-              color: '#c4b5fd',
-              padding: '6px 14px',
-              borderRadius: 8,
-              fontSize: 12,
-              fontWeight: 600,
-              textDecoration: 'none',
-              transition: 'all 0.15s ease',
-            }}
-            title="Open Instagram Control Room"
-          >
-            <span>📸 Instagram Control Room ↗</span>
-          </a>
+          {/* Instagram Control Room Redirect — strictly visible ONLY to Nina Admin */}
+          {workspace.isNinaAdmin && (
+            <a
+              href="https://automation.ninakurainservices.in"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                background: 'rgba(115, 84, 218, 0.15)',
+                border: '1px solid rgba(115, 84, 218, 0.4)',
+                color: '#c4b5fd',
+                padding: '6px 14px',
+                borderRadius: 8,
+                fontSize: 12,
+                fontWeight: 600,
+                textDecoration: 'none',
+                transition: 'all 0.15s ease',
+              }}
+              title="Open Instagram Control Room"
+            >
+              <span>📸 Instagram Control Room ↗</span>
+            </a>
+          )}
+
+          {/* Nina Master Admin Badge & Login Access */}
+          {workspace.isNinaAdmin ? (
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 8,
+                background: 'rgba(115, 84, 218, 0.18)',
+                border: '1px solid rgba(115, 84, 218, 0.45)',
+                padding: '5px 12px',
+                borderRadius: 8,
+                fontSize: 12,
+                fontWeight: 700,
+                color: '#c4b5fd',
+              }}
+            >
+              <span
+                style={{ cursor: 'pointer' }}
+                onClick={() => setActiveTab('admin')}
+                title="Open Nina Admin Panel"
+              >
+                👑 Nina Admin
+              </span>
+              <button
+                onClick={async () => {
+                  await api('admin-logout');
+                  await refresh();
+                  setActiveTab('inbox');
+                  showToast('Signed out from Nina Admin');
+                }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#a78bfa',
+                  cursor: 'pointer',
+                  fontSize: 11,
+                  textDecoration: 'underline',
+                  padding: 0,
+                }}
+                title="Sign out as Admin"
+              >
+                Logout
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setShowAdminLoginModal(true)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+                background: 'rgba(255, 255, 255, 0.05)',
+                border: '1px solid rgba(255, 255, 255, 0.12)',
+                padding: '5px 10px',
+                borderRadius: 8,
+                fontSize: 11,
+                fontWeight: 600,
+                color: '#94a3b8',
+                cursor: 'pointer',
+              }}
+              title="Master Admin Sign-in for Nina"
+            >
+              <span>🔒 Nina Login</span>
+            </button>
+          )}
 
           <div
             onClick={() => setActiveTab('connect')}
@@ -261,7 +385,7 @@ export default function WhatsAppCommandCenter() {
           </div>
 
           <div
-            style={{ ...ui.kpiPill, cursor: 'pointer', border: activeTab === 'orders' ? '1px solid #10b981' : undefined }}
+            style={{ ...ui.kpiPill, cursor: 'pointer', border: activeTab === 'orders' ? `1px solid ${themeColor}` : undefined }}
             onClick={() => setActiveTab('orders')}
             title="View Orders & Delivery Map"
           >
@@ -283,27 +407,28 @@ export default function WhatsAppCommandCenter() {
 
       {/* Navigation Tabs */}
       <nav style={ui.nav}>
-        {[
-          { id: 'inbox', label: 'Live Inbox', icon: '💬' },
-          { id: 'orders', label: 'Orders & Live Map', icon: '📍' },
-          { id: 'catalog', label: 'Watches & Catalog', icon: '🛍️' },
-          { id: 'business', label: 'Store Profile', icon: '🏢' },
-          { id: 'brain', label: 'AI Behavior & Tone', icon: '🧠' },
-          { id: 'analytics', label: 'Analytics & Leads', icon: '📊' },
-          { id: 'connect', label: 'WhatsApp Device', icon: '📱' },
-        ].map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id as any)}
-            style={{
-              ...ui.navBtn,
-              ...(activeTab === tab.id ? ui.navBtnActive : {}),
-            }}
-          >
-            <span style={{ fontSize: 16 }}>{tab.icon}</span>
-            <span>{tab.label}</span>
-          </button>
-        ))}
+        {navTabs.map((tab) => {
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id as any)}
+              style={{
+                ...ui.navBtn,
+                ...(isActive
+                  ? {
+                      background: `${themeColor}22`,
+                      color: themeColor,
+                      boxShadow: `inset 0 0 0 1px ${themeColor}60`,
+                    }
+                  : {}),
+              }}
+            >
+              <span style={{ fontSize: 16 }}>{tab.icon}</span>
+              <span>{tab.label}</span>
+            </button>
+          );
+        })}
       </nav>
 
       {/* Main Container */}
@@ -362,6 +487,17 @@ export default function WhatsAppCommandCenter() {
         {activeTab === 'connect' && (
           <ConnectView waStatus={waStatus} onAction={doAction} onRefresh={refreshConnect} />
         )}
+        {activeTab === 'admin' && (
+          <NinaAdminView
+            workspace={workspace}
+            onAction={doAction}
+            onSwitchBusiness={async (bizId) => {
+              await doAction('switch-business', { businessId: bizId });
+              await refresh();
+            }}
+            onOpenOnboard={() => setShowOnboardModal(true)}
+          />
+        )}
       </main>
 
       {/* Quick Business Setup Modal */}
@@ -372,6 +508,32 @@ export default function WhatsAppCommandCenter() {
           onSave={async (updated) => {
             await doAction('save-settings', { settings: updated });
             setShowBusinessModal(false);
+          }}
+        />
+      )}
+
+      {/* Nina Master Admin Login Modal */}
+      {showAdminLoginModal && (
+        <AdminLoginModal
+          onClose={() => setShowAdminLoginModal(false)}
+          onSuccess={async () => {
+            setShowAdminLoginModal(false);
+            await refresh();
+            setActiveTab('admin');
+            showToast('👑 Welcome Nina Kurain — Master Admin Unlocked');
+          }}
+        />
+      )}
+
+      {/* Onboard Client Business Modal */}
+      {showOnboardModal && (
+        <OnboardBusinessModal
+          onClose={() => setShowOnboardModal(false)}
+          onSave={async (newBiz) => {
+            await doAction('register-business', newBiz);
+            setShowOnboardModal(false);
+            await refresh();
+            showToast(`Business "${newBiz.name}" onboarded successfully!`);
           }}
         />
       )}
@@ -412,6 +574,8 @@ function InboxView({
 }) {
   const [manualText, setManualText] = useState('');
   const [showQuick, setShowQuick] = useState(false);
+  const [locationDrawerOpen, setLocationDrawerOpen] = useState(false);
+  const [orderDrawerOpen, setOrderDrawerOpen] = useState(false);
   const messagesAreaRef = useRef<HTMLDivElement>(null);
   const lastThreadIdRef = useRef<string>('');
   const lastMsgCountRef = useRef<number>(0);
@@ -603,212 +767,293 @@ function InboxView({
               </div>
             </div>
 
-            {/* Confirmed Order Banner if Order Exists for this Thread */}
+            {/* Collapsible Order Confirmation Banner */}
             {(() => {
               const threadOrder = (orders || []).find((o: WAOrder) => o.threadId === selectedThread.id);
               if (!threadOrder) return null;
               return (
                 <div
                   style={{
-                    background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.16), rgba(6, 78, 59, 0.35))',
-                    borderBottom: '1px solid rgba(16, 185, 129, 0.4)',
-                    padding: '12px 20px',
+                    background: 'rgba(16, 185, 129, 0.08)',
+                    borderBottom: '1px solid rgba(16, 185, 129, 0.25)',
+                    padding: '8px 18px',
                     display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    flexWrap: 'wrap',
-                    gap: 10,
+                    flexDirection: 'column',
+                    gap: 6,
                   }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <span style={{ fontSize: 22 }}>📦</span>
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{ color: '#34d399', fontWeight: 800, fontSize: 13 }}>
-                          ORDER CONFIRMED: {threadOrder.id}
-                        </span>
-                        <span style={{ background: '#059669', color: '#fff', fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 4, textTransform: 'uppercase' }}>
-                          {threadOrder.orderStatus.replace(/_/g, ' ')}
-                        </span>
-                      </div>
-                      <div style={{ color: '#f1f5f9', fontSize: 13, fontWeight: 600, marginTop: 2 }}>
-                        {threadOrder.productName} — ₹{threadOrder.amount.toLocaleString('en-IN')}
-                      </div>
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      cursor: 'pointer',
+                    }}
+                    onClick={() => setOrderDrawerOpen((prev) => !prev)}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+                      <span>📦</span>
+                      <strong style={{ color: '#34d399' }}>Order {threadOrder.id}</strong>
+                      <span style={{ color: '#94a3b8' }}>• {threadOrder.productName} (₹{threadOrder.amount.toLocaleString('en-IN')})</span>
+                      <span
+                        style={{
+                          background: '#059669',
+                          color: '#fff',
+                          fontSize: 10,
+                          fontWeight: 700,
+                          padding: '1px 6px',
+                          borderRadius: 4,
+                          textTransform: 'uppercase',
+                        }}
+                      >
+                        {threadOrder.orderStatus.replace(/_/g, ' ')}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      {onViewOrders && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onViewOrders();
+                          }}
+                          style={{
+                            background: '#10b981',
+                            color: '#0f172a',
+                            border: 'none',
+                            borderRadius: 4,
+                            padding: '3px 8px',
+                            fontWeight: 700,
+                            fontSize: 11,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          View Map ➔
+                        </button>
+                      )}
+                      <span style={{ color: '#94a3b8', fontSize: 11 }}>{orderDrawerOpen ? '▲ Hide' : '▼ Details'}</span>
                     </div>
                   </div>
 
-                  {onViewOrders && (
-                    <button
-                      onClick={onViewOrders}
-                      style={{
-                        background: '#10b981',
-                        color: '#0f172a',
-                        border: 'none',
-                        borderRadius: 6,
-                        padding: '6px 14px',
-                        fontWeight: 700,
-                        fontSize: 12,
-                        cursor: 'pointer',
-                      }}
-                    >
-                      View in Orders & Map ➔
-                    </button>
+                  {orderDrawerOpen && (
+                    <div className="accordion-drawer" style={{ paddingTop: 6, borderTop: '1px dashed rgba(16,185,129,0.2)', fontSize: 12, color: '#cbd5e1', display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                      <div>Customer: <strong>{threadOrder.customerName}</strong> ({threadOrder.customerPhone})</div>
+                      <div>Payment: <span style={{ color: '#38bdf8' }}>{threadOrder.paymentMode} ({threadOrder.paymentStatus})</span></div>
+                      {threadOrder.trackingNumber && <div>Courier: <strong>{threadOrder.courierPartner}</strong> (#{threadOrder.trackingNumber})</div>}
+                    </div>
                   )}
                 </div>
               );
             })()}
 
-            {/* Delivery Location & Map Card if Address Detected */}
+            {/* Collapsible Delivery Location & Map Accordion (Chat Squeezing Fix) */}
             {selectedThread.deliveryLocation && (
               <div
                 style={{
                   background: selectedThread.deliveryLocation.verified
-                    ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(6, 78, 59, 0.25))'
-                    : 'linear-gradient(135deg, rgba(245, 158, 11, 0.12), rgba(120, 53, 15, 0.25))',
+                    ? 'rgba(16, 185, 129, 0.08)'
+                    : 'rgba(245, 158, 11, 0.08)',
                   borderBottom: `1px solid ${
-                    selectedThread.deliveryLocation.verified ? 'rgba(16, 185, 129, 0.3)' : 'rgba(245, 158, 11, 0.3)'
+                    selectedThread.deliveryLocation.verified ? 'rgba(16, 185, 129, 0.25)' : 'rgba(245, 158, 11, 0.25)'
                   }`,
-                  padding: '12px 20px',
+                  padding: '8px 18px',
                   display: 'flex',
                   flexDirection: 'column',
-                  gap: 10,
+                  gap: 8,
                 }}
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8 }}>
-                  <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                    <span style={{ fontSize: 22 }}>
+                {/* Ultra-compact 32px Bar (Ensures chat messages are 100% visible) */}
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    cursor: 'pointer',
+                    gap: 8,
+                  }}
+                  onClick={() => setLocationDrawerOpen((prev) => !prev)}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, overflow: 'hidden' }}>
+                    <span style={{ fontSize: 16, flexShrink: 0 }}>
                       {selectedThread.deliveryLocation.verified ? '📍' : '⚠️'}
                     </span>
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                        <span
-                          style={{
-                            fontSize: 13,
-                            fontWeight: 700,
-                            color: selectedThread.deliveryLocation.verified ? '#34d399' : '#fbbf24',
-                          }}
-                        >
-                          {selectedThread.deliveryLocation.verified
-                            ? 'DELIVERY LOCATION MAPPED & VERIFIED'
-                            : 'DELIVERY ADDRESS DETECTED · PIN CODE REQUIRED'}
-                        </span>
-                        {selectedThread.deliveryLocation.pincode && (
-                          <span
-                            style={{
-                              background: '#047857',
-                              color: '#fff',
-                              fontSize: 11,
-                              fontWeight: 700,
-                              padding: '2px 8px',
-                              borderRadius: 4,
-                            }}
-                          >
-                            PIN: {selectedThread.deliveryLocation.pincode}
-                          </span>
-                        )}
-                      </div>
-                      <div style={{ color: '#f1f5f9', fontSize: 13, marginTop: 3, fontWeight: 500 }}>
-                        {selectedThread.deliveryLocation.raw}
-                      </div>
-                      {selectedThread.deliveryLocation.lat && selectedThread.deliveryLocation.lng && (
-                        <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 2 }}>
-                          GPS: {selectedThread.deliveryLocation.lat.toFixed(4)}° N,{' '}
-                          {selectedThread.deliveryLocation.lng.toFixed(4)}° E
-                        </div>
-                      )}
-                    </div>
+                    <span
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: selectedThread.deliveryLocation.verified ? '#34d399' : '#fbbf24',
+                        whiteSpace: 'nowrap',
+                        flexShrink: 0,
+                      }}
+                    >
+                      {selectedThread.deliveryLocation.verified ? 'LOCATION MAPPED' : 'PIN NEEDED'}
+                    </span>
+                    {selectedThread.deliveryLocation.pincode && (
+                      <span
+                        style={{
+                          background: '#047857',
+                          color: '#fff',
+                          fontSize: 10,
+                          fontWeight: 700,
+                          padding: '1px 6px',
+                          borderRadius: 4,
+                          flexShrink: 0,
+                        }}
+                      >
+                        PIN: {selectedThread.deliveryLocation.pincode}
+                      </span>
+                    )}
+                    <span
+                      style={{
+                        color: '#cbd5e1',
+                        fontSize: 12,
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                      title={selectedThread.deliveryLocation.raw}
+                    >
+                      {selectedThread.deliveryLocation.raw}
+                    </span>
                   </div>
 
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                    {selectedThread.deliveryLocation && (
-                      <a
-                        href={getGoogleMapsSearchUrl(selectedThread.deliveryLocation)}
-                        target="_blank"
-                        rel="noreferrer"
-                        style={{
-                          background: '#2563eb',
-                          color: '#fff',
-                          padding: '6px 12px',
-                          borderRadius: 6,
-                          fontSize: 12,
-                          fontWeight: 600,
-                          textDecoration: 'none',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 4,
-                        }}
-                      >
-                        🗺️ Google Maps
-                      </a>
-                    )}
-                    {selectedThread.deliveryLocation && (
-                      <a
-                        href={getGoogleMapsDirectionsUrl(selectedThread.deliveryLocation)}
-                        target="_blank"
-                        rel="noreferrer"
-                        style={{
-                          background: '#059669',
-                          color: '#fff',
-                          padding: '6px 12px',
-                          borderRadius: 6,
-                          fontSize: 12,
-                          fontWeight: 600,
-                          textDecoration: 'none',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 4,
-                        }}
-                      >
-                        🛵 Rider Route
-                      </a>
-                    )}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                    <a
+                      href={getGoogleMapsSearchUrl(selectedThread.deliveryLocation)}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      style={{
+                        background: '#2563eb',
+                        color: '#fff',
+                        padding: '3px 8px',
+                        borderRadius: 4,
+                        fontSize: 11,
+                        fontWeight: 600,
+                        textDecoration: 'none',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 3,
+                      }}
+                      title="Open Google Maps search"
+                    >
+                      🗺️ Map ↗
+                    </a>
                     <button
-                      onClick={() => {
-                        const loc = selectedThread.deliveryLocation!;
-                        const text = `DELIVERY SLIP\nRecipient: ${selectedThread.name} (${selectedThread.phone})\nAddress: ${loc.raw}\nPIN: ${loc.pincode || 'MISSING'}\nGPS: ${loc.lat || ''}, ${loc.lng || ''}\nMaps: ${loc.mapUrl || ''}\nRider Route: ${loc.directionsUrl || ''}`;
-                        navigator.clipboard?.writeText(text);
-                        alert('Delivery slip copied to clipboard!');
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setLocationDrawerOpen((prev) => !prev);
                       }}
                       style={{
-                        background: '#334155',
-                        color: '#f8fafc',
-                        padding: '6px 12px',
-                        borderRadius: 6,
-                        border: '1px solid #475569',
-                        fontSize: 12,
+                        background: 'rgba(255, 255, 255, 0.08)',
+                        color: '#94a3b8',
+                        border: 'none',
+                        borderRadius: 4,
+                        padding: '3px 8px',
+                        fontSize: 11,
                         fontWeight: 600,
                         cursor: 'pointer',
                       }}
                     >
-                      📋 Copy Slip
+                      {locationDrawerOpen ? '▲ Collapse' : '▼ Details'}
                     </button>
                   </div>
                 </div>
 
-                {/* Embedded Interactive Map Preview if coordinates exist */}
-                {selectedThread.deliveryLocation.lat && selectedThread.deliveryLocation.lng && (
+                {/* Expanded Drawer Details (only visible when user clicks Details) */}
+                {locationDrawerOpen && (
                   <div
+                    className="accordion-drawer"
                     style={{
-                      borderRadius: 8,
-                      overflow: 'hidden',
-                      height: 160,
-                      border: '1px solid rgba(255,255,255,0.1)',
-                      marginTop: 4,
+                      paddingTop: 8,
+                      borderTop: '1px dashed rgba(255,255,255,0.1)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 8,
                     }}
                   >
-                    <iframe
-                      width="100%"
-                      height="100%"
-                      frameBorder="0"
-                      style={{ border: 0, width: '100%', height: '100%' }}
-                      src={`https://www.google.com/maps?q=${encodeURIComponent(
-                        selectedThread.deliveryLocation.raw.includes('1302')
-                          ? '1302, Sathgalli Layout, Mysuru, Karnataka'
-                          : selectedThread.deliveryLocation.formattedAddress || selectedThread.deliveryLocation.raw
-                      )}&t=&z=16&ie=UTF8&iwloc=&output=embed`}
-                      allowFullScreen
-                      loading="lazy"
-                    />
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8 }}>
+                      <div>
+                        <div style={{ color: '#f1f5f9', fontSize: 13, fontWeight: 500 }}>
+                          {selectedThread.deliveryLocation.raw}
+                        </div>
+                        {selectedThread.deliveryLocation.lat && selectedThread.deliveryLocation.lng && (
+                          <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 2 }}>
+                            GPS: {selectedThread.deliveryLocation.lat.toFixed(4)}° N,{' '}
+                            {selectedThread.deliveryLocation.lng.toFixed(4)}° E
+                          </div>
+                        )}
+                      </div>
+
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        <a
+                          href={getGoogleMapsDirectionsUrl(selectedThread.deliveryLocation)}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{
+                            background: '#059669',
+                            color: '#fff',
+                            padding: '4px 10px',
+                            borderRadius: 6,
+                            fontSize: 11,
+                            fontWeight: 600,
+                            textDecoration: 'none',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 4,
+                          }}
+                        >
+                          🛵 Rider Route
+                        </a>
+                        <button
+                          onClick={() => {
+                            const loc = selectedThread.deliveryLocation!;
+                            const text = `DELIVERY SLIP\nRecipient: ${selectedThread.name} (${selectedThread.phone})\nAddress: ${loc.raw}\nPIN: ${loc.pincode || 'MISSING'}\nGPS: ${loc.lat || ''}, ${loc.lng || ''}\nMaps: ${loc.mapUrl || ''}\nRider Route: ${loc.directionsUrl || ''}`;
+                            navigator.clipboard?.writeText(text);
+                            alert('Delivery slip copied to clipboard!');
+                          }}
+                          style={{
+                            background: '#334155',
+                            color: '#f8fafc',
+                            padding: '4px 10px',
+                            borderRadius: 6,
+                            border: '1px solid #475569',
+                            fontSize: 11,
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          📋 Copy Slip
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Interactive Map Preview (Only rendered when drawer is expanded) */}
+                    {selectedThread.deliveryLocation.lat && selectedThread.deliveryLocation.lng && (
+                      <div
+                        style={{
+                          borderRadius: 8,
+                          overflow: 'hidden',
+                          height: 140,
+                          border: '1px solid rgba(255,255,255,0.1)',
+                          marginTop: 4,
+                        }}
+                      >
+                        <iframe
+                          width="100%"
+                          height="100%"
+                          frameBorder="0"
+                          style={{ border: 0, width: '100%', height: '100%' }}
+                          src={`https://www.google.com/maps?q=${encodeURIComponent(
+                            selectedThread.deliveryLocation.raw.includes('1302')
+                              ? '1302, Sathgalli Layout, Mysuru, Karnataka'
+                              : selectedThread.deliveryLocation.formattedAddress || selectedThread.deliveryLocation.raw
+                          )}&t=&z=16&ie=UTF8&iwloc=&output=embed`}
+                          allowFullScreen
+                          loading="lazy"
+                        />
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -2440,6 +2685,806 @@ function OrdersAndMapView({
 }
 
 // ════════════════════════════════════════════════════════════════════════
+// ── NINA MASTER ADMIN CONSOLE & CLIENT ACCOUNTS ────────────────────────
+// ════════════════════════════════════════════════════════════════════════
+
+function NinaAdminView({
+  workspace,
+  onAction,
+  onSwitchBusiness,
+  onOpenOnboard,
+}: {
+  workspace: WAWorkspace;
+  onAction: (action: string, body?: any) => Promise<void>;
+  onSwitchBusiness: (bizId: string) => Promise<void>;
+  onOpenOnboard: () => void;
+}) {
+  const [adminSearch, setAdminSearch] = useState('');
+  const [refreshingDb, setRefreshingDb] = useState(false);
+
+  const turso = workspace.tursoStats || {
+    connected: true,
+    provider: 'Turso LibSQL (Cloud Distributed)',
+    totalRows: 0,
+    tableCounts: { threads: 0, orders: 0, customers: 0, jobs: 0, activity: 0, state: 0 },
+    storageEstimateKb: 0,
+    storageEstimateMb: '0.00',
+    health: 'Operational (Turso LibSQL Cloud)',
+    lastChecked: Date.now(),
+  };
+
+  const registeredAccounts = workspace.registeredAccounts || [];
+  const filteredAccounts = registeredAccounts.filter(
+    (a) =>
+      a.name.toLowerCase().includes(adminSearch.toLowerCase()) ||
+      a.phone.includes(adminSearch) ||
+      a.category.toLowerCase().includes(adminSearch.toLowerCase()) ||
+      a.ownerName.toLowerCase().includes(adminSearch.toLowerCase())
+  );
+
+  return (
+    <div style={{ padding: '24px 32px', maxWidth: 1400, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 24 }}>
+      {/* Top Admin Banner */}
+      <div
+        style={{
+          background: 'linear-gradient(135deg, rgba(115, 84, 218, 0.16) 0%, rgba(16, 185, 129, 0.1) 100%)',
+          border: '1px solid rgba(115, 84, 218, 0.35)',
+          borderRadius: 16,
+          padding: '24px 28px',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: 16,
+          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <div
+            style={{
+              width: 52,
+              height: 52,
+              borderRadius: 14,
+              background: 'linear-gradient(135deg, #7354da 0%, #4f46e5 100%)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: 26,
+              boxShadow: '0 4px 16px rgba(115, 84, 218, 0.4)',
+            }}
+          >
+            👑
+          </div>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <h2 style={{ margin: 0, fontSize: 20, color: '#f8fafc', fontWeight: 800 }}>
+                Nina Kurain · Master WhatsApp Administration
+              </h2>
+              <span
+                style={{
+                  background: 'rgba(16, 185, 129, 0.2)',
+                  color: '#34d399',
+                  border: '1px solid rgba(16, 185, 129, 0.4)',
+                  padding: '2px 8px',
+                  borderRadius: 12,
+                  fontSize: 11,
+                  fontWeight: 700,
+                }}
+              >
+                MULTI-CLIENT HQ
+              </span>
+            </div>
+            <p style={{ margin: '4px 0 0', color: '#94a3b8', fontSize: 13 }}>
+              Onboard businesses, manage client instances, inspect WhatsApp activities & monitor Turso database utilization.
+            </p>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <button
+            onClick={onOpenOnboard}
+            style={{
+              background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+              color: '#ffffff',
+              border: 'none',
+              padding: '10px 18px',
+              borderRadius: 10,
+              fontSize: 13,
+              fontWeight: 700,
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
+              boxShadow: '0 4px 14px rgba(16, 185, 129, 0.35)',
+            }}
+          >
+            <span>➕ Onboard Client Business</span>
+          </button>
+
+          <a
+            href="https://automation.ninakurainservices.in"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              background: 'linear-gradient(135deg, #7354da 0%, #5833b8 100%)',
+              color: '#ffffff',
+              border: 'none',
+              padding: '10px 18px',
+              borderRadius: 10,
+              fontSize: 13,
+              fontWeight: 700,
+              textDecoration: 'none',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
+              boxShadow: '0 4px 14px rgba(115, 84, 218, 0.35)',
+            }}
+          >
+            <span>📸 Instagram Control Room ↗</span>
+          </a>
+        </div>
+      </div>
+
+      {/* 4 Master KPIs */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>
+        <div style={{ background: 'rgba(15, 23, 42, 0.65)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: 14, padding: '18px 20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', color: '#94a3b8', fontSize: 13, marginBottom: 8 }}>
+            <span>Client Businesses</span>
+            <span style={{ fontSize: 18 }}>🏬</span>
+          </div>
+          <div style={{ fontSize: 28, fontWeight: 800, color: '#f8fafc' }}>
+            {registeredAccounts.length}
+          </div>
+          <div style={{ fontSize: 12, color: '#10b981', marginTop: 4, fontWeight: 600 }}>
+            Active & ready for clients
+          </div>
+        </div>
+
+        <div style={{ background: 'rgba(15, 23, 42, 0.65)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: 14, padding: '18px 20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', color: '#94a3b8', fontSize: 13, marginBottom: 8 }}>
+            <span>WhatsApp Devices</span>
+            <span style={{ fontSize: 18 }}>📱</span>
+          </div>
+          <div style={{ fontSize: 28, fontWeight: 800, color: '#f8fafc' }}>
+            {registeredAccounts.filter((a) => a.deviceStatus === 'connected').length || (workspace.connections?.whatsappVerified ? 1 : 0)}
+          </div>
+          <div style={{ fontSize: 12, color: '#60a5fa', marginTop: 4, fontWeight: 600 }}>
+            Live paired instances
+          </div>
+        </div>
+
+        <div style={{ background: 'rgba(15, 23, 42, 0.65)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: 14, padding: '18px 20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', color: '#94a3b8', fontSize: 13, marginBottom: 8 }}>
+            <span>Total System Chats</span>
+            <span style={{ fontSize: 18 }}>💬</span>
+          </div>
+          <div style={{ fontSize: 28, fontWeight: 800, color: '#f8fafc' }}>
+            {workspace.threads?.length || 0}
+          </div>
+          <div style={{ fontSize: 12, color: '#a78bfa', marginTop: 4, fontWeight: 600 }}>
+            Across all client businesses
+          </div>
+        </div>
+
+        <div style={{ background: 'rgba(15, 23, 42, 0.65)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: 14, padding: '18px 20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', color: '#94a3b8', fontSize: 13, marginBottom: 8 }}>
+            <span>Total System Orders</span>
+            <span style={{ fontSize: 18 }}>📦</span>
+          </div>
+          <div style={{ fontSize: 28, fontWeight: 800, color: '#f8fafc' }}>
+            {workspace.orders?.length || 0}
+          </div>
+          <div style={{ fontSize: 12, color: '#34d399', marginTop: 4, fontWeight: 600 }}>
+            Verified customer bookings
+          </div>
+        </div>
+      </div>
+
+      {/* Turso DB Usage Tracker Card */}
+      <div
+        style={{
+          background: 'rgba(15, 23, 42, 0.75)',
+          border: '1px solid rgba(115, 84, 218, 0.3)',
+          borderRadius: 16,
+          padding: '24px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 18,
+          boxShadow: '0 8px 30px rgba(0, 0, 0, 0.35)',
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={{ fontSize: 24 }}>🗄️</span>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <h3 style={{ margin: 0, fontSize: 16, color: '#f8fafc', fontWeight: 700 }}>
+                  Turso Cloud Database Usage & Health Monitor
+                </h3>
+                <span
+                  style={{
+                    background: turso.connected ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)',
+                    color: turso.connected ? '#34d399' : '#f87171',
+                    border: `1px solid ${turso.connected ? 'rgba(16, 185, 129, 0.4)' : 'rgba(239, 68, 68, 0.4)'}`,
+                    padding: '2px 8px',
+                    borderRadius: 12,
+                    fontSize: 10,
+                    fontWeight: 700,
+                  }}
+                >
+                  {turso.connected ? '🟢 TURSO CLOUD ACTIVE' : '🔴 DEGRADED'}
+                </span>
+              </div>
+              <p style={{ margin: '2px 0 0', color: '#94a3b8', fontSize: 12 }}>
+                High-performance distributed SQLite (LibSQL) shared seamlessly between Instagram & WhatsApp instances.
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={async () => {
+              setRefreshingDb(true);
+              try {
+                await onAction('refresh-turso-stats');
+              } finally {
+                setRefreshingDb(false);
+              }
+            }}
+            disabled={refreshingDb}
+            style={{
+              background: 'rgba(255, 255, 255, 0.08)',
+              border: '1px solid rgba(255, 255, 255, 0.15)',
+              color: '#f8fafc',
+              padding: '7px 14px',
+              borderRadius: 8,
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+            }}
+          >
+            <span>{refreshingDb ? '⏳ Refreshing...' : '🔄 Refresh DB Metrics'}</span>
+          </button>
+        </div>
+
+        {/* Storage Bar */}
+        <div style={{ background: 'rgba(30, 41, 59, 0.5)', padding: '16px', borderRadius: 12, border: '1px solid rgba(255, 255, 255, 0.06)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, fontSize: 13 }}>
+            <span style={{ color: '#cbd5e1' }}>
+              Turso Storage Footprint: <strong style={{ color: '#38bdf8' }}>{turso.storageEstimateKb} KB</strong> (~{turso.storageEstimateMb} MB)
+            </span>
+            <span style={{ color: '#94a3b8', fontSize: 12 }}>
+              Total Rows Recorded: <strong style={{ color: '#f8fafc' }}>{turso.totalRows}</strong> / Free Tier Quota ~9 GB
+            </span>
+          </div>
+          <div style={{ width: '100%', height: 8, background: 'rgba(255, 255, 255, 0.1)', borderRadius: 999, overflow: 'hidden' }}>
+            <div
+              style={{
+                width: `${Math.max(2, Math.min(100, (turso.storageEstimateKb / 10240) * 100))}%`,
+                height: '100%',
+                background: 'linear-gradient(90deg, #10b981 0%, #7354da 100%)',
+                borderRadius: 999,
+              }}
+            />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 11, color: '#64748b' }}>
+            <span>Healthy Storage Utilization (&lt; 0.1%)</span>
+            <span>Zero latency cloud replicas</span>
+          </div>
+        </div>
+
+        {/* Table Breakdown Chips */}
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#cbd5e1', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+            Live Turso Tables Breakdown:
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
+            <div style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.07)', borderRadius: 8, padding: '10px 14px' }}>
+              <div style={{ fontSize: 11, color: '#94a3b8' }}>wa_threads</div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: '#38bdf8', marginTop: 2 }}>{turso.tableCounts?.threads || 0}</div>
+              <div style={{ fontSize: 10, color: '#64748b' }}>Conversations & messages</div>
+            </div>
+
+            <div style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.07)', borderRadius: 8, padding: '10px 14px' }}>
+              <div style={{ fontSize: 11, color: '#94a3b8' }}>wa_orders</div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: '#34d399', marginTop: 2 }}>{turso.tableCounts?.orders || 0}</div>
+              <div style={{ fontSize: 10, color: '#64748b' }}>Confirmed bookings & pins</div>
+            </div>
+
+            <div style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.07)', borderRadius: 8, padding: '10px 14px' }}>
+              <div style={{ fontSize: 11, color: '#94a3b8' }}>wa_customers</div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: '#fbbf24', marginTop: 2 }}>{turso.tableCounts?.customers || 0}</div>
+              <div style={{ fontSize: 10, color: '#64748b' }}>Profiles & phone numbers</div>
+            </div>
+
+            <div style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.07)', borderRadius: 8, padding: '10px 14px' }}>
+              <div style={{ fontSize: 11, color: '#94a3b8' }}>wa_jobs</div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: '#a78bfa', marginTop: 2 }}>{turso.tableCounts?.jobs || 0}</div>
+              <div style={{ fontSize: 10, color: '#64748b' }}>Async queue jobs</div>
+            </div>
+
+            <div style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.07)', borderRadius: 8, padding: '10px 14px' }}>
+              <div style={{ fontSize: 11, color: '#94a3b8' }}>wa_activity</div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: '#f472b6', marginTop: 2 }}>{turso.tableCounts?.activity || 0}</div>
+              <div style={{ fontSize: 10, color: '#64748b' }}>Audit log entries</div>
+            </div>
+
+            <div style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.07)', borderRadius: 8, padding: '10px 14px' }}>
+              <div style={{ fontSize: 11, color: '#94a3b8' }}>wa_state</div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: '#c084fc', marginTop: 2 }}>{turso.tableCounts?.state || 0}</div>
+              <div style={{ fontSize: 10, color: '#64748b' }}>Tenant stores & configs</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Registered Businesses Table */}
+      <div
+        style={{
+          background: 'rgba(15, 23, 42, 0.75)',
+          border: '1px solid rgba(255, 255, 255, 0.08)',
+          borderRadius: 16,
+          padding: '24px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 16,
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+          <div>
+            <h3 style={{ margin: 0, fontSize: 16, color: '#f8fafc', fontWeight: 700 }}>
+              Registered Client Businesses ({registeredAccounts.length})
+            </h3>
+            <p style={{ margin: '2px 0 0', color: '#94a3b8', fontSize: 12 }}>
+              Client organizations using Nina WhatsApp Automation. Switch workspaces anytime to configure their bot or test.
+            </p>
+          </div>
+
+          <div style={{ display: 'flex', gap: 10 }}>
+            <input
+              type="text"
+              placeholder="🔍 Filter client businesses..."
+              value={adminSearch}
+              onChange={(e) => setAdminSearch(e.target.value)}
+              style={{
+                background: 'rgba(30, 41, 59, 0.6)',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                color: '#f8fafc',
+                padding: '8px 14px',
+                borderRadius: 8,
+                fontSize: 12,
+                outline: 'none',
+                minWidth: 220,
+              }}
+            />
+          </div>
+        </div>
+
+        {/* Table of Accounts */}
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 13 }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.1)', color: '#94a3b8', fontSize: 11, textTransform: 'uppercase' }}>
+                <th style={{ padding: '10px 14px' }}>Business</th>
+                <th style={{ padding: '10px 14px' }}>Owner & Phone</th>
+                <th style={{ padding: '10px 14px' }}>Category</th>
+                <th style={{ padding: '10px 14px' }}>Device</th>
+                <th style={{ padding: '10px 14px' }}>Activity</th>
+                <th style={{ padding: '10px 14px', textAlign: 'right' }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredAccounts.map((acc) => {
+                const isActive = (workspace.activeAccountId || 'biz_titan_watches') === acc.id;
+                return (
+                  <tr
+                    key={acc.id}
+                    style={{
+                      borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
+                      background: isActive ? 'rgba(115, 84, 218, 0.07)' : 'transparent',
+                    }}
+                  >
+                    <td style={{ padding: '14px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <span
+                          style={{
+                            width: 12,
+                            height: 12,
+                            borderRadius: '50%',
+                            background: acc.themeColor || '#10b981',
+                            boxShadow: `0 0 8px ${acc.themeColor || '#10b981'}`,
+                            flexShrink: 0,
+                          }}
+                        />
+                        <div>
+                          <div style={{ fontWeight: 700, color: '#f8fafc', display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span>{acc.name}</span>
+                            {isActive && (
+                              <span style={{ fontSize: 9, background: '#7354da', color: '#fff', padding: '1px 6px', borderRadius: 4, fontWeight: 700 }}>
+                                ACTIVE
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>{acc.tagline}</div>
+                        </div>
+                      </div>
+                    </td>
+
+                    <td style={{ padding: '14px' }}>
+                      <div style={{ color: '#cbd5e1' }}>{acc.ownerName}</div>
+                      <div style={{ fontSize: 11, color: '#94a3b8' }}>{acc.phone}</div>
+                    </td>
+
+                    <td style={{ padding: '14px' }}>
+                      <span
+                        style={{
+                          background: 'rgba(255, 255, 255, 0.06)',
+                          color: '#cbd5e1',
+                          padding: '3px 8px',
+                          borderRadius: 6,
+                          fontSize: 11,
+                          fontWeight: 600,
+                        }}
+                      >
+                        {acc.category}
+                      </span>
+                    </td>
+
+                    <td style={{ padding: '14px' }}>
+                      <span
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          fontSize: 11,
+                          fontWeight: 700,
+                          color: acc.deviceStatus === 'connected' ? '#34d399' : '#94a3b8',
+                        }}
+                      >
+                        <span
+                          style={{
+                            width: 7,
+                            height: 7,
+                            borderRadius: '50%',
+                            background: acc.deviceStatus === 'connected' ? '#10b981' : '#64748b',
+                          }}
+                        />
+                        {acc.deviceStatus === 'connected' ? 'Linked' : 'Standby'}
+                      </span>
+                    </td>
+
+                    <td style={{ padding: '14px' }}>
+                      <div style={{ color: '#cbd5e1', fontSize: 12 }}>
+                        {acc.threadCount || workspace.threads?.length || 0} chats · {acc.orderCount || workspace.orders?.length || 0} orders
+                      </div>
+                    </td>
+
+                    <td style={{ padding: '14px', textAlign: 'right' }}>
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                        <button
+                          onClick={() => onSwitchBusiness(acc.id)}
+                          style={{
+                            background: isActive ? 'rgba(115, 84, 218, 0.25)' : 'rgba(255, 255, 255, 0.08)',
+                            color: isActive ? '#c4b5fd' : '#f8fafc',
+                            border: `1px solid ${isActive ? '#7354da' : 'rgba(255,255,255,0.12)'}`,
+                            padding: '5px 12px',
+                            borderRadius: 6,
+                            fontSize: 11,
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {isActive ? '✓ In Workspace' : 'Switch ➔'}
+                        </button>
+
+                        {registeredAccounts.length > 1 && (
+                          <button
+                            onClick={() => {
+                              if (confirm(`Remove client business "${acc.name}" from WhatsApp automation?`)) {
+                                onAction('delete-business', { businessId: acc.id });
+                              }
+                            }}
+                            style={{
+                              background: 'rgba(239, 68, 68, 0.12)',
+                              color: '#f87171',
+                              border: '1px solid rgba(239, 68, 68, 0.3)',
+                              padding: '5px 8px',
+                              borderRadius: 6,
+                              fontSize: 11,
+                              cursor: 'pointer',
+                            }}
+                            title="Remove Client"
+                          >
+                            🗑
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Admin Login Modal ──────────────────────────────────────────────────
+function AdminLoginModal({
+  onClose,
+  onSuccess,
+}: {
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [pin, setPin] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setBusy(true);
+    try {
+      await api('admin-login', { pin });
+      onSuccess();
+    } catch (err: any) {
+      setError(err.message || 'Incorrect Nina PIN');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={ui.modalOverlay}>
+      <div style={{ ...ui.modalCard, maxWidth: 420 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 24 }}>👑</span>
+            <h3 style={{ margin: 0, color: '#f8fafc', fontSize: 17, fontWeight: 700 }}>
+              Nina Master Admin Access
+            </h3>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: 20, cursor: 'pointer' }}>
+            ✕
+          </button>
+        </div>
+
+        <p style={{ color: '#94a3b8', fontSize: 13, marginBottom: 18, lineHeight: 1.5 }}>
+          Enter Nina Kurain master passcode to unlock client onboarding, Turso database monitors, and Instagram routing.
+        </p>
+
+        {error && (
+          <div style={{ background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.35)', color: '#fca5a5', padding: '10px 12px', borderRadius: 8, fontSize: 12, marginBottom: 14 }}>
+            {error}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 700, color: '#cbd5e1', textTransform: 'uppercase', marginBottom: 6, display: 'block' }}>
+              Master Security PIN
+            </label>
+            <input
+              type="password"
+              autoFocus
+              placeholder="Enter PIN (e.g. 123456)"
+              value={pin}
+              onChange={(e) => setPin(e.target.value)}
+              style={ui.inputField}
+            />
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 8 }}>
+            <button type="button" onClick={onClose} style={ui.cancelBtn}>
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={busy || !pin}
+              style={{
+                ...ui.saveBtn,
+                background: 'linear-gradient(135deg, #7354da 0%, #5833b8 100%)',
+              }}
+            >
+              {busy ? 'Verifying...' : 'Unlock Admin Portal'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ── Onboard Client Business Modal ──────────────────────────────────────
+function OnboardBusinessModal({
+  onClose,
+  onSave,
+}: {
+  onClose: () => void;
+  onSave: (biz: {
+    name: string;
+    ownerName: string;
+    phone: string;
+    category: string;
+    tagline: string;
+    themeColor: string;
+  }) => Promise<void>;
+}) {
+  const [name, setName] = useState('');
+  const [ownerName, setOwnerName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [category, setCategory] = useState('Luxury Watches & Boutique');
+  const [tagline, setTagline] = useState('Timeless Craftsmanship, Modern Innovation');
+  const [themeColor, setThemeColor] = useState('#10b981');
+  const [busy, setBusy] = useState(false);
+
+  const colors = [
+    { label: 'Emerald', hex: '#10b981' },
+    { label: 'Purple / Violet', hex: '#7354da' },
+    { label: 'Gold / Amber', hex: '#f59e0b' },
+    { label: 'Blue', hex: '#3b82f6' },
+    { label: 'Rose / Pink', hex: '#ec4899' },
+  ];
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+    setBusy(true);
+    try {
+      await onSave({ name, ownerName, phone, category, tagline, themeColor });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={ui.modalOverlay}>
+      <div style={{ ...ui.modalCard, maxWidth: 520 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 24 }}>➕</span>
+            <h3 style={{ margin: 0, color: '#f8fafc', fontSize: 18, fontWeight: 700 }}>
+              Onboard Client Business (Free)
+            </h3>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: 20, cursor: 'pointer' }}>
+            ✕
+          </button>
+        </div>
+
+        <p style={{ color: '#94a3b8', fontSize: 13, marginBottom: 18 }}>
+          Create an automated WhatsApp instance for your new client. No payment gateway required.
+        </p>
+
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 700, color: '#cbd5e1', textTransform: 'uppercase', marginBottom: 4, display: 'block' }}>
+              Business Name *
+            </label>
+            <input
+              type="text"
+              required
+              placeholder="e.g. Zara Boutique, Dr. Care Clinic"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              style={ui.inputField}
+            />
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 700, color: '#cbd5e1', textTransform: 'uppercase', marginBottom: 4, display: 'block' }}>
+                Client Owner Name
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. Ramesh Patel"
+                value={ownerName}
+                onChange={(e) => setOwnerName(e.target.value)}
+                style={ui.inputField}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 700, color: '#cbd5e1', textTransform: 'uppercase', marginBottom: 4, display: 'block' }}>
+                WhatsApp Phone Number
+              </label>
+              <input
+                type="text"
+                placeholder="+91 98765 43210"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                style={ui.inputField}
+              />
+            </div>
+          </div>
+
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 700, color: '#cbd5e1', textTransform: 'uppercase', marginBottom: 4, display: 'block' }}>
+              Category
+            </label>
+            <select
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              style={ui.inputField}
+            >
+              <option value="Luxury Watches & Boutique">Luxury Watches & Boutique</option>
+              <option value="Fashion & Apparel">Fashion & Apparel</option>
+              <option value="Jewelry & Accessories">Jewelry & Accessories</option>
+              <option value="Clinic & Healthcare">Clinic & Healthcare</option>
+              <option value="Real Estate & Property">Real Estate & Property</option>
+              <option value="Restaurant & Bakery">Restaurant & Bakery</option>
+              <option value="Professional Consulting">Professional Consulting</option>
+            </select>
+          </div>
+
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 700, color: '#cbd5e1', textTransform: 'uppercase', marginBottom: 4, display: 'block' }}>
+              Tagline / Mission
+            </label>
+            <input
+              type="text"
+              placeholder="e.g. Crafted with passion, delivered with speed"
+              value={tagline}
+              onChange={(e) => setTagline(e.target.value)}
+              style={ui.inputField}
+            />
+          </div>
+
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 700, color: '#cbd5e1', textTransform: 'uppercase', marginBottom: 6, display: 'block' }}>
+              Brand Theme Color
+            </label>
+            <div style={{ display: 'flex', gap: 10 }}>
+              {colors.map((c) => (
+                <div
+                  key={c.hex}
+                  onClick={() => setThemeColor(c.hex)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '6px 10px',
+                    borderRadius: 8,
+                    border: `1.5px solid ${themeColor === c.hex ? c.hex : 'rgba(255,255,255,0.1)'}`,
+                    background: themeColor === c.hex ? `${c.hex}22` : 'rgba(255,255,255,0.04)',
+                    cursor: 'pointer',
+                    fontSize: 12,
+                  }}
+                >
+                  <span style={{ width: 10, height: 10, borderRadius: '50%', background: c.hex }} />
+                  <span style={{ color: themeColor === c.hex ? '#f8fafc' : '#94a3b8' }}>{c.label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 12 }}>
+            <button type="button" onClick={onClose} style={ui.cancelBtn}>
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={busy || !name.trim()}
+              style={{
+                ...ui.saveBtn,
+                background: `linear-gradient(135deg, ${themeColor} 0%, #059669 100%)`,
+              }}
+            >
+              {busy ? 'Registering...' : 'Create Business Instance'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════
 // ── MODERN LUXURY UI STYLES ─────────────────────────────────────────────
 // ════════════════════════════════════════════════════════════════════════
 
@@ -2576,7 +3621,7 @@ const ui: Record<string, React.CSSProperties> = {
   mainContent: { flex: 1, minHeight: 'calc(100vh - 120px)' },
 
   // Inbox
-  inboxLayout: { display: 'flex', height: 'calc(100vh - 120px)' },
+  inboxLayout: { display: 'flex', height: 'calc(100vh - 120px)', minHeight: 560, overflow: 'hidden' },
   inboxSidebar: {
     width: 360,
     borderRight: '1px solid rgba(255,255,255,0.06)',
@@ -2627,7 +3672,15 @@ const ui: Record<string, React.CSSProperties> = {
   badgeTag: { padding: '2px 6px', borderRadius: 4, fontSize: 9, fontWeight: 700, textTransform: 'uppercase', color: '#fff' },
 
   // Chat Panel
-  chatPanel: { flex: 1, display: 'flex', flexDirection: 'column', background: 'rgba(7, 12, 22, 0.7)' },
+  chatPanel: {
+    flex: 1,
+    minHeight: 0,
+    minWidth: 0,
+    display: 'flex',
+    flexDirection: 'column',
+    background: 'rgba(7, 12, 22, 0.7)',
+    overflow: 'hidden',
+  },
   noChatSelected: { flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' },
   chatTopBanner: {
     display: 'flex',
@@ -2636,6 +3689,7 @@ const ui: Record<string, React.CSSProperties> = {
     padding: '12px 24px',
     background: 'rgba(15, 23, 42, 0.6)',
     borderBottom: '1px solid rgba(255,255,255,0.06)',
+    flexShrink: 0,
   },
   smallActionBtn: {
     padding: '6px 14px',
@@ -2646,7 +3700,15 @@ const ui: Record<string, React.CSSProperties> = {
     fontWeight: 600,
     cursor: 'pointer',
   },
-  messagesArea: { flex: 1, overflowY: 'auto', padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 10 },
+  messagesArea: {
+    flex: 1,
+    minHeight: 0,
+    overflowY: 'auto',
+    padding: '18px 24px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 10,
+  },
   msgBubble: {
     maxWidth: '68%',
     padding: '10px 16px',
