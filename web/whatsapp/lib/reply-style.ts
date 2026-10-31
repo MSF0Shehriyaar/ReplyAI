@@ -216,6 +216,16 @@ export function buildSystemPrompt(settings: WASettings, thread: WAThread, intent
       latestInbound.trim()
     );
 
+  const isCatalogSubmission =
+    /(?:i would like to order the|i would like to place an order for the following|with privilege discount code titan10|select & order on whatsapp|i would like to order:|\*total timepieces\*)/i.test(
+      latestInbound
+    );
+
+  const isOrderIntent =
+    isExploringOrNewOrder ||
+    /\b(order|place an order|want to buy|want to order|buy a watch|order karna|book my order|kharidna|purchase)\b/i.test(latestInbound) ||
+    /^(i want to (place|order|buy)|can i order|order)\b/i.test(latestInbound.trim());
+
   let currentWatch = undefined;
 
   // Only match watch model if customer did not explicitly request the general menu/catalog
@@ -316,6 +326,14 @@ export function buildSystemPrompt(settings: WASettings, thread: WAThread, intent
       : 'LANGUAGE: Match the customer\'s language naturally. If English, reply in English. If Hinglish/Hindi, reply in Hinglish.';
   }
 
+  const isGreeting =
+    /^(hi|hii|hello|hey|heya|hola|namaste|greetings|good\s*(morning|afternoon|evening))\b/i.test(latestInbound.trim());
+
+  const isOrderStatusInquiry =
+    /\b(status|tracking|track|where is my|kab aayega|kab milega|dispatch status|courier|delivery time|when will it reach|kaha pahucha)\b/i.test(latestInbound) ||
+    /^\.{1,4}\?*$/.test(latestInbound.trim()) ||
+    /^\?+$/.test(latestInbound.trim());
+
   const isOrderOrCheckout =
     intent === 'delivery_address' ||
     intent === 'order_inquiry' ||
@@ -325,85 +343,85 @@ export function buildSystemPrompt(settings: WASettings, thread: WAThread, intent
     /\b([1-9][0-9]{2}\s?[0-9]{3})\b/.test(latestInbound) ||
     /\b(#\s*\d+|road|street|nagar|layout|colony|galli|hospital)\b/i.test(latestInbound);
 
-  // Check if we already confirmed the order/location in a recent outgoing message
-  const alreadyConfirmedInChat = thread.messages
-    .slice(-4)
-    .some((m) => m.role === 'outgoing' && (m.text.includes('order is now confirmed') || m.text.includes('order has been confirmed') || m.text.includes('DELIVERY LOCATION MAPPED') || m.text.includes('BlueDart')));
+  const isExplicitConfirmation =
+    /^(yes|yep|yeah|sure|confirm|proceed|ok|okay|haan|ha|bilkul|kar do|done|book it)\b/i.test(latestInbound.trim()) ||
+    /\b(confirm order|yes confirm|book kar|haan kar do|proceed with cod|proceed with order|confirm it|book this|order confirm)\b/i.test(latestInbound);
 
   let locationInstruction = '';
-  if (thread.deliveryLocation) {
-    if (thread.deliveryLocation.pincodeMissing) {
-      if (isJustProvidedAddressOrPin || isOrderOrCheckout) {
-        const pinRequestExample = language === 'English'
-          ? `"I have noted your delivery address: ${thread.deliveryLocation.raw} ✨ However, to schedule express courier dispatch, your 6-digit PIN code is mandatory. Could you please share your PIN code? 🤍"`
-          : `"Aapka address note kar liya hai: ${thread.deliveryLocation.raw} ✨ Par exact delivery dispatch ke liye aapka 6-digit pincode zaroori hai. Kya aap apna pincode share kar sakte hai? 🤍"`;
 
-        locationInstruction = `
+  if (isGreeting) {
+    locationInstruction = `
+CONCIERGE GREETING PROTOCOL:
+- The customer greeted you ("${latestInbound}").
+- Greet them warmly by name (${customerName !== 'there' ? customerName : 'the customer'}).
+- Welcome them and ask how you can assist them today.
+- Offer our interactive digital boutique link:
+  👉 ${catalogUrl}
+- DO NOT dump previous order details or courier status unless they explicitly ask for tracking!`;
+  } else if (isExploringOrNewOrder || (isOrderIntent && !isCatalogSubmission)) {
+    locationInstruction = `
+MANDATORY CATALOG ORDERING PROTOCOL (DIRECTIVE ENFORCED):
+- The customer wants to place an order, buy a watch, or explore collections!
+- MANDATORY STORE POLICY: All orders MUST be placed directly through our interactive Digital Boutique catalog link:
+  👉 ${catalogUrl}
+- Politely explain that ordering directly from the catalog is mandatory to verify watch availability, automatically apply the 10% privilege discount code TITAN10, and register the order for insured BlueDart express delivery.
+- Highlight 2-3 popular models:
+  • Titan Neo Minimalist Classic Brown — ₹3,495 (Casual daily wear)
+  • Titan Raga Viva Rose Gold Pearl — ₹6,495 (Women's luxury)
+  • Titan Edge Ceramic Midnight Black — ₹29,995 (World's slimmest ceramic)
+- Instruct the customer clearly:
+  "To place your order, ordering directly through our official digital boutique catalog is mandatory! ✨ Please tap the link below:
+  👉 ${catalogUrl}
+  Simply tap 'Quick Order' (or 'Add to Cart' for bulk) next to your chosen watch to submit your verified order right here on WhatsApp! 🤍"
+- STRICT RULE: DO NOT ask for their delivery address or phone number before they order from the catalog!`;
+  } else if (isOrderStatusInquiry) {
+    locationInstruction = `
+ORDER STATUS & DISPATCH INQUIRY PROTOCOL:
+- The customer is inquiring about their delivery status or tracking ("${latestInbound}").
+- Reassure them warmly that their confirmed order${hasKnownAddress ? ` is safely booked for BlueDart express delivery to ${currentAddress} and will arrive within 2-4 business days` : ' is being processed with high priority'}.`;
+  } else if (hasCustomerSelectedWatch) {
+    if (isExplicitConfirmation) {
+      locationInstruction = `
+ORDER CONFIRMATION:
+- Selected Watch: ${watchName} (${watchPrice})
+- Delivery Address: ${hasKnownAddress ? currentAddress : 'provided in chat'}
+- Enthusiastically confirm the order: BlueDart express delivery in 2-4 business days, official warranty card, and luxury gift box packaging!`;
+    } else if (hasKnownAddress) {
+      locationInstruction = `
+SELECTED WATCH - CLIENT ADDRESS ON FILE:
+- The customer selected: ${watchName} (${watchPrice}).
+- We ALREADY have this customer's verified delivery address on file: ${currentAddress} (PIN: ${currentPin}) and Phone: ${thread.phone || 'on file'}.
+- CRITICAL DIRECTIVE: DO NOT ask for their address, name, or phone number again! It is already recorded!
+- Enthusiastically acknowledge their selected timepiece (${watchName}${watchPrice ? ` - ${watchPrice}` : ''}), confirm delivery to their recorded address, and ask for their payment confirmation:
+  "I'm delighted to help you with the ${watchName} (${watchPrice})! ✨ I already have your delivery address noted at ${currentAddress}. Would you like me to book this for express BlueDart dispatch via Cash on Delivery or prepaid UPI? 🤍"`;
+    } else if (thread.deliveryLocation?.pincodeMissing) {
+      locationInstruction = `
 DELIVERY ADDRESS ALERT (PINCODE MISSING):
 - The customer gave this address: "${thread.deliveryLocation.raw}".
 - The 6-digit postal PIN code is MISSING!
-- Acknowledge their address politely with corrected municipal spelling and ask for their 6-digit delivery PIN code so we can finalize express courier dispatch.
-- If their Full Name is not known yet, ask for their name as well.
-- Example: ${pinRequestExample}`;
-      } else {
-        // Customer is just chatting or asking a general question, do not badger for pincode
-        locationInstruction = `
-NOTE: Customer has not provided their pincode yet. Answer their current message naturally first. Only ask for the pincode if they are ready to book or checkout.`;
-      }
-    } else {
-      const isConfirming =
-        isJustProvidedAddressOrPin ||
-        /^(yes|yep|yeah|sure|confirm|proceed|ok|okay|haan|ha|bilkul|kar do|place order|done|book it)\b/i.test(latestInbound.trim()) ||
-        /\b(confirm order|yes confirm|book kar|place order|haan kar do|proceed with cod|proceed with order|confirm it|book this)\b/i.test(latestInbound);
-
-      if (isConfirming && !alreadyConfirmedInChat) {
-        locationInstruction = `
-ORDER CONFIRMATION (ONE-TIME):
-- Address: ${thread.deliveryLocation.raw}
-- Verified PIN: ${thread.deliveryLocation.pincode}
-- GPS Coordinates: ${thread.deliveryLocation.lat?.toFixed(4)}° N, ${thread.deliveryLocation.lng?.toFixed(4)}° E
-- The customer has confirmed their booking with verified address and PIN. Confirm the order enthusiastically with:
-  1. The watch model name and exact catalog price.
-  2. Delivery address and verified postal PIN: ${thread.deliveryLocation.raw}.
-  3. Payment method (Cash on Delivery or UPI).
-  4. BlueDart express delivery in 2-4 business days.`;
-      } else {
-        // Order already confirmed previously; REASSURE and DO NOT REPEAT address forms or ask for watch again!
-        locationInstruction = `
-CLIENT CONTEXT (ORDER ALREADY CONFIRMED):
-- An order for the customer has already been successfully confirmed in this conversation!
-- Delivery address and PIN (${thread.deliveryLocation.pincode}) are safely recorded in our system.
-- If the customer texts follow-up check-ins, marks, or confusion (such as "..?", "ok", "sure", "thanks", "kab milega", "status"):
-  Reassure them warmly that their order is locked in, high-priority, and scheduled for BlueDart express dispatch to ${thread.deliveryLocation.raw} within 2-4 business days.
-- CRITICAL: DO NOT ask them which watch they want to order or ask for their address again!`;
-      }
-    }
-  } else {
-    if (isOrderOrCheckout) {
-      if (!hasCustomerSelectedWatch) {
-        locationInstruction = `
-ORDER EXPLORATION PROTOCOL (FIRST STEP MANDATORY):
-- The customer wants to purchase or explore watches, but has NOT chosen a specific watch model yet!
-- FIRST STEP DIRECTIVE: You MUST enthusiastically welcome their order and provide our interactive Digital Boutique link:
-  👉 ${catalogUrl}
-- Instruct them to view photos, prices, specifications, and tap "Select & Order on WhatsApp" or tell you which model they prefer.
-- DO NOT ask for their delivery address or phone number yet!`;
-      } else {
-        locationInstruction = `
-ORDER BOOKING & DISPATCH PROTOCOL:
-- The customer wants to purchase ${watchName} (${watchPrice}):
-  1. Confirm the watch model and quote the EXACT catalog price.
-  2. Ask for their delivery details:
-     - Full Name (for the delivery parcel)
-     - Complete Delivery Address (House/Door No., Road/Street, Locality/Area, Landmark, City)
-     - 6-Digit Postal PIN Code (Mandatory for express dispatch)
-     - Payment Preference (COD or Prepaid UPI for 10% OFF with code ${settings.discountCode || 'TITAN10'})`;
-      }
+- Acknowledge their address politely and ask for their 6-digit delivery PIN code so we can finalize express courier dispatch.`;
     } else {
       locationInstruction = `
-CONCIERGE CONSULTATION:
-- Chat naturally with the customer. Answer their watch inquiries, explain features, and guide them gracefully. Do NOT ask for address or pincode until they want to purchase.`;
+SELECTED WATCH - DETAILS REQUIRED:
+- The customer selected: ${watchName} (${watchPrice}).
+- Acknowledge the watch model (${watchName}${watchPrice ? ` - ${watchPrice}` : ''}).
+- Ask for all required dispatch details:
+  1. Full name and complete delivery address (house/flat no, street, locality, city, and 6-digit pin code).
+  2. A contact phone number.
+  3. Preferred payment method (Cash on Delivery or UPI).`;
     }
+  } else if (thread.deliveryLocation?.pincodeMissing && isJustProvidedAddressOrPin) {
+    locationInstruction = `
+DELIVERY ADDRESS ALERT (PINCODE MISSING):
+- The customer gave this address: "${thread.deliveryLocation.raw}".
+- The 6-digit postal PIN code is MISSING!
+- Acknowledge their address politely and ask for their 6-digit delivery PIN code so we can finalize express courier dispatch.`;
+  } else {
+    locationInstruction = `
+CONCIERGE CONSULTATION:
+- Chat naturally with the customer. Answer their watch inquiries, explain features, and guide them gracefully.
+- If they ask for the collection or menu, ALWAYS provide our digital boutique link: 👉 ${catalogUrl}
+- DO NOT ask for address or pincode until they choose a watch model.`;
   }
 
   return `You are ${profile.name || 'Nina Kurain'}, Senior Client Advisor & Timepiece Specialist at ${businessName || 'Titan Watches'}.
@@ -432,24 +450,25 @@ ${dynamicPriceRules}
 GOLD-STANDARD DYNAMIC ORDER BOOKING PROTOCOL (PERSONALIZE FOR CURRENT CLIENT):
 Follow this exact multi-turn sequence for ${customerName !== 'there' ? customerName : 'the customer'}:
 
-Stage 1: Customer Expresses Purchase Intent (e.g. wants to buy, order, or purchase):
+Stage 1: Customer Expresses Purchase Intent (MANDATORY TO ORDER VIA CATALOG):
 ${
-  !hasCustomerSelectedWatch
-    ? `- CRITICAL MANDATORY DIRECTIVE: The customer wants to place an order, but has NOT chosen which watch model they want yet!
-- DO NOT ask for their address or phone number yet!
-- You MUST enthusiastically welcome their order and provide our interactive digital catalog link:
+  !isCatalogSubmission && !hasCustomerSelectedWatch
+    ? `- CRITICAL MANDATORY STORE DIRECTIVE: All orders MUST be placed directly from our official interactive Digital Boutique catalog link:
   👉 ${catalogUrl}
-- Instruct them to view photos, prices, specifications, and either tap "Select & Order on WhatsApp" / "Add to Cart" or tell you which model they prefer.
+- It is strictly mandatory for the customer to order through the digital catalog link so their model selection, 10% privilege discount code TITAN10, and warranty registration are officially verified for express BlueDart dispatch.
+- If the customer asks to order in chat, asks "how to order", or requests a watch model without having clicked 'Quick Order' / 'Add to Cart' from the catalog:
+  Politely inform them that ordering from our digital boutique catalog is mandatory. Provide the link (👉 ${catalogUrl}) and instruct them to tap 'Quick Order' or 'Add to Cart' next to their chosen watch to submit their order on WhatsApp.
+- DO NOT ask for their delivery address or phone number before they order from the catalog!
 ${
   isEnglish
-    ? `  "I'm thrilled to help you place an order! ✨ To help you choose your favorite timepiece or explore bulk ordering, please browse our interactive digital boutique link:
+    ? `  "To place your order, ordering directly through our official digital boutique catalog is mandatory! ✨ Please tap the link below:
   👉 ${catalogUrl}
 
-  You can view high-definition photos, see full specifications, and tap 'Select & Order on WhatsApp' or 'Add to Cart'. Or simply let me know which timepiece catches your eye, and I will immediately arrange your express dispatch! 🤍"`
-    : `  "Order place karne ke liye main aapki poori madad karungi! ✨ Please hamare digital boutique link par jaakar timepieces explore kijiye aur apna favorite model select kijiye:
+  Browse the collection and tap 'Quick Order' (or 'Add to Cart') next to your chosen watch. This will immediately submit your verified order to our concierge desk on WhatsApp with code TITAN10 (-10% OFF)! 🤍"`
+    : `  "Order place karne ke liye hamare official digital boutique catalog link se order karna mandatory hai! ✨ Please neeche diye gaye link par tap kijiye:
   👉 ${catalogUrl}
 
-  Yahan aap photos dekh sakte hain aur direct 'Select & Order on WhatsApp' ya 'Add to Cart' tap kar sakte hain. Aap kaunsi watch order karna chahte hain? 🤍"`
+  Apna favorite model select karke 'Quick Order' ya 'Add to Cart' tap kijiye, jisse aapka verified order direct WhatsApp par submit ho sake! 🤍"`
 }`
     : hasKnownAddress
     ? `- The customer has selected: ${watchName} (${watchPrice}).
@@ -515,7 +534,7 @@ PAYMENT RULES (STRICT):
 
 THINKING & RESPONSE BEHAVIOR (INSTA-STYLE CONVERSATIONAL INTELLIGENCE):
 1. **Analyze Customer Intent**:
-   - GREETING ("Hi", "Hello"): Respond warmly and ask what style of watch they are exploring today. DO NOT ask for address or pincode on a greeting!
+   - GREETING ("Hi", "Hii", "Hello", "Hey"): Respond warmly by name, welcome them back, and ask how you can assist them today. Invite them to browse our digital boutique (${catalogUrl}) if they'd like to explore watches. DO NOT dump previous order details or courier dispatch cards on a greeting!
    - CATALOG / MENU ("List your menu", "show collection", "what watches do you have", "menu"):
      DO NOT dump a plain 7-line wall of text in the chat! Send our official Digital Boutique Visual Catalog link (${catalogUrl}) where clients can view high-definition watch images, zoom in, and tap "Select & Order on WhatsApp" to proceed:
 ${isEnglish
@@ -544,7 +563,7 @@ Aap hamari poori collection high-definition photos aur detailed specifications k
 
 Upar diye gaye link pe tap karke photos dekhiye aur apna favorite model select kijiye! Kaunsa design pasand aaya? 🤍⌚"`}
    - PRODUCT / FEATURE INQUIRY ("explain 8995 one in detail"): Give detailed horological specs, case size, movement, and price. Ask if they like the features. DO NOT ask for address or pincode!
-   - ORDER / PURCHASE / CHECKOUT: Follow the Stage 1 to Stage 4 gold-standard protocol above.
+   - ORDER / PURCHASE / CHECKOUT: Follow the Stage 1 to Stage 4 gold-standard protocol above. It is strictly MANDATORY for the customer to order from our digital boutique catalog link (${catalogUrl}). Never take an order informally in chat or ask for address/phone before they order through the catalog!
 2. **Texting Nuances**:
    - You are a REAL human specialist texting on WhatsApp. Never say "As an AI model" or sound like an automated answering machine.
    - Emojis: Warm & tasteful (✨, 🤍, 😊, 📦, ⏱️) — 1-2 per message.

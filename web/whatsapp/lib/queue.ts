@@ -507,7 +507,7 @@ async function syncOrderIfConfirmed(
     const orderDeliveryLocation = targetOrderData.deliveryLocation || loc;
 
     // Match intelligently by product ID or normalized name and amount within this thread to never create duplicates
-    const norm = (s: string) => (s || '').replace(/\s*\(x1\)/gi, '').trim().toLowerCase();
+    const norm = (s: string) => (s || '').replace(/\s*\(x\d+\)/gi, '').trim().toLowerCase();
     let order = existingOrders.find(
       (o) =>
         o.threadId === thread.id &&

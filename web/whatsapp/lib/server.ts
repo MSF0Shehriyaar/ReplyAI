@@ -345,7 +345,7 @@ export async function reconcileOrdersWithThreads(): Promise<void> {
 
       for (const item of parsedOrders) {
         // Match existing order intelligently by product ID or normalized name and amount
-        const norm = (s: string) => (s || '').replace(/\s*\(x1\)/gi, '').trim().toLowerCase();
+        const norm = (s: string) => (s || '').replace(/\s*\(x\d+\)/gi, '').trim().toLowerCase();
         let order = existingOrders.find(
           (o) =>
             o.threadId === thread.id &&
@@ -414,7 +414,6 @@ export async function reconcileOrdersWithThreads(): Promise<void> {
         await saveOrder(newOrder);
         existingOrders.push(newOrder);
         console.log(`[WA] 📦 New order saved: ${newOrder.id} for ${newOrder.customerName} (${newOrder.productName} - ₹${newOrder.amount})`);
-        existingOrders.push(newOrder);
         if (!thread.tags.includes('order_confirmed')) {
           thread.tags.push('order_confirmed');
           await saveThread(thread);
