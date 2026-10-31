@@ -14,6 +14,26 @@ const nextConfig = {
     '@whiskeysockets/baileys',
     'qrcode',
   ],
+  async rewrites() {
+    return [
+      {
+        source: '/whatsapp',
+        destination: '/',
+      },
+      {
+        source: '/api/whatsapp/workspace',
+        destination: '/api/workspace',
+      },
+      {
+        source: '/api/whatsapp/connect',
+        destination: '/api/connect',
+      },
+      {
+        source: '/api/whatsapp/:path*',
+        destination: '/api/:path*',
+      },
+    ];
+  },
 };
 
 export default nextConfig;

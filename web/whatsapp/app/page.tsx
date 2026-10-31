@@ -18,7 +18,7 @@ import { initialWAWorkspace, waDefaults, titanWatchesCatalog } from '@/lib/model
 // ── API Helpers ─────────────────────────────────────────────────────────
 
 async function api(action: string, body?: any) {
-  const res = await fetch('/api/workspace', {
+  const res = await fetch('/api/whatsapp/workspace', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action, ...body }),
@@ -31,7 +31,7 @@ async function api(action: string, body?: any) {
 }
 
 async function loadWorkspace(): Promise<WAWorkspace> {
-  const res = await fetch(`/api/workspace?_t=${Date.now()}`, {
+  const res = await fetch(`/api/whatsapp/workspace?_t=${Date.now()}`, {
     cache: 'no-store',
     headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate', Pragma: 'no-cache' },
   });
@@ -97,7 +97,7 @@ export default function WhatsAppCommandCenter() {
 
   const refreshConnect = useCallback(async () => {
     try {
-      const res = await fetch('/api/connect');
+      const res = await fetch('/api/whatsapp/connect');
       if (res.ok) setWaStatus(await res.json());
     } catch {}
   }, []);
@@ -1525,7 +1525,7 @@ function ConnectView({
   const handleConnect = async () => {
     setConnecting(true);
     try {
-      await fetch('/api/connect', {
+      await fetch('/api/whatsapp/connect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'connect' }),
