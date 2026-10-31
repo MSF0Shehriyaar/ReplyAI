@@ -456,7 +456,8 @@ async function syncOrderIfConfirmed(
       ...(draft ? [{ text: draft, role: 'outgoing' }] : []),
     ];
     const parsedOrders = extractOrdersFromThread(allCandidateMsgs, s.catalog || []);
-    const targetOrderData = parsedOrders[0];
+    // Pick the most recent confirmed order event in the thread
+    const targetOrderData = parsedOrders.length > 0 ? parsedOrders[parsedOrders.length - 1] : null;
 
     if (!targetOrderData) {
       console.log(`[WA] ℹ️ No specific timepiece identified in thread.`);
@@ -468,17 +469,17 @@ async function syncOrderIfConfirmed(
       fullChatText.includes('online') ||
       fullChatText.includes('prepaid');
 
-    const { allOrders, saveOrder } = await import('./server');
+    const { allOrders, saveOrder, reconcileOrdersWithThreads } = await import('./server');
     const existingOrders = await allOrders();
     const targetProductId = targetOrderData.productId || 'titan-watch';
 
-    const currentCustName = thread.name || customer.name || 'Customer';
-    const currentCustPhone = thread.phone || customer.phone || '';
+    const currentCustName = targetOrderData.customerName !== 'Customer' ? targetOrderData.customerName : (thread.name || customer.name || 'Customer');
+    const currentCustPhone = targetOrderData.customerPhone || thread.phone || customer.phone || '';
+    const orderDeliveryLocation = targetOrderData.deliveryLocation || loc;
 
-    // If there is an existing pending draft order for this exact thread and watch, update it;
-    // Otherwise, create a clean new order record so multiple customer bookings are never clobbered!
+    // Match strictly by exact amount and product name within this thread to never clobber existing orders
     let order = existingOrders.find(
-      (o) => o.threadId === thread.id && o.orderStatus === 'confirmed' && (o.productId === targetProductId || o.productName === targetOrderData.productName)
+      (o) => o.threadId === thread.id && o.amount === targetOrderData.amount && o.productName === targetOrderData.productName
     );
 
     const targetOrderStatus = isReadyForDispatch ? 'ready_for_dispatch' : 'confirmed';
@@ -502,7 +503,7 @@ async function syncOrderIfConfirmed(
         paymentMode: isUpi ? 'UPI' : 'COD',
         paymentStatus: isUpi ? 'paid' : 'pending',
         orderStatus: targetOrderStatus,
-        deliveryLocation: loc,
+        deliveryLocation: orderDeliveryLocation,
         courierPartner: 'BlueDart',
         createdAt: Date.now(),
         updatedAt: Date.now(),
@@ -512,7 +513,7 @@ async function syncOrderIfConfirmed(
     } else {
       order.customerName = currentCustName;
       order.customerPhone = currentCustPhone;
-      order.deliveryLocation = loc;
+      order.deliveryLocation = orderDeliveryLocation;
       order.productName = targetOrderData.productName;
       order.productId = targetProductId;
       order.items = targetOrderData.items;
