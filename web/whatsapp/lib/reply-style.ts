@@ -194,34 +194,60 @@ export function buildSystemPrompt(settings: WASettings, thread: WAThread, intent
       ? thread.name
       : 'there';
 
-  // Only inspect messages sent by the customer, NEVER previous bot messages!
-  const customerMsgs = thread.messages.filter((m) => m.role === 'incoming');
-  const customerChatText = (customerMsgs.map((m) => m.text).join(' ') + ' ' + latestInbound).toLowerCase();
-
-  let currentWatch = (settings.catalog || []).find(
-    (c) => customerChatText.includes(c.name.toLowerCase()) || customerChatText.includes(c.id.toLowerCase())
+  // Identify active shopping session (messages since the last confirmed order, if any)
+  const lastConfirmedIdx = thread.messages.findLastIndex(
+    (m) =>
+      m.role === 'outgoing' &&
+      /(?:order.*(is|now)?.*confirmed|order has been confirmed|order is confirmed|booking confirmed|express delivery scheduled)/i.test(
+        m.text
+      )
   );
-  if (!currentWatch) {
-    if (customerChatText.includes('raga') || customerChatText.includes('pearl')) {
-      currentWatch = (settings.catalog || []).find((c) => c.id === 'titan-raga-viva');
-    } else if (customerChatText.includes('edge') || customerChatText.includes('ceramic')) {
-      currentWatch = (settings.catalog || []).find((c) => c.id === 'titan-edge-ceramic');
-    } else if (customerChatText.includes('grandmaster') || customerChatText.includes('skeleton')) {
-      currentWatch = (settings.catalog || []).find((c) => c.id === 'titan-grandmaster-auto');
-    } else if (customerChatText.includes('octane') || customerChatText.includes('chrono') || customerChatText.includes('8995')) {
-      currentWatch = (settings.catalog || []).find((c) => c.id === 'titan-octane-chrono');
-    } else if (customerChatText.includes('smart pro') || customerChatText.includes('smartwatch')) {
-      currentWatch = (settings.catalog || []).find((c) => c.id === 'titan-smart-pro');
-    } else if (customerChatText.includes('nebula') || customerChatText.includes('18k gold')) {
-      currentWatch = (settings.catalog || []).find((c) => c.id === 'titan-nebula-gold');
-    } else if (customerChatText.includes('neo') || customerChatText.includes('classic brown')) {
-      currentWatch = (settings.catalog || []).find((c) => c.id === 'titan-neo-casual');
+
+  const activeMessages = lastConfirmedIdx >= 0 ? thread.messages.slice(lastConfirmedIdx + 1) : thread.messages;
+  const recentInbound = activeMessages.filter((m) => m.role === 'incoming').map((m) => m.text).join('\n');
+  const activeInboundText = (recentInbound + '\n' + latestInbound).toLowerCase();
+
+  // Detect if customer is requesting menu, exploring collections, or starting a new order
+  const isExploringOrNewOrder =
+    /\b(menu|catalog|collection|ghadi|watches|dikhao|what do you have|new order|place a new order|place order|order karna hai|buy a watch|options|kya rate hai)\b/i.test(
+      latestInbound
+    ) ||
+    /^(i want to (place|order|buy)|can i (get|see) (the )?menu|show (me)? (the )?(menu|collection|watches))\b/i.test(
+      latestInbound.trim()
+    );
+
+  let currentWatch = undefined;
+
+  // Only match watch model if customer did not explicitly request the general menu/catalog
+  if (!isExploringOrNewOrder) {
+    currentWatch = (settings.catalog || []).find(
+      (c) => activeInboundText.includes(c.name.toLowerCase()) || activeInboundText.includes(c.id.toLowerCase())
+    );
+    if (!currentWatch) {
+      if (activeInboundText.includes('most basic') || activeInboundText.includes('basic one') || activeInboundText.includes('cheapest') || activeInboundText.includes('budget') || activeInboundText.includes('lowest price') || activeInboundText.includes('3495')) {
+        currentWatch = (settings.catalog || []).find((c) => c.id === 'titan-neo-casual');
+      } else if (activeInboundText.includes('raga') || activeInboundText.includes('pearl') || activeInboundText.includes('women watch') || activeInboundText.includes('womens watch') || activeInboundText.includes('for women') || activeInboundText.includes('6495')) {
+        currentWatch = (settings.catalog || []).find((c) => c.id === 'titan-raga-viva');
+      } else if (activeInboundText.includes('edge') || activeInboundText.includes('ceramic') || activeInboundText.includes('slimmest') || activeInboundText.includes('29995')) {
+        currentWatch = (settings.catalog || []).find((c) => c.id === 'titan-edge-ceramic');
+      } else if (activeInboundText.includes('grandmaster') || activeInboundText.includes('skeleton') || activeInboundText.includes('automatic') || activeInboundText.includes('19995')) {
+        currentWatch = (settings.catalog || []).find((c) => c.id === 'titan-grandmaster-auto');
+      } else if (activeInboundText.includes('octane') || activeInboundText.includes('chrono') || activeInboundText.includes('8995')) {
+        currentWatch = (settings.catalog || []).find((c) => c.id === 'titan-octane-chrono');
+      } else if (activeInboundText.includes('smart pro') || activeInboundText.includes('smartwatch') || activeInboundText.includes('7995')) {
+        currentWatch = (settings.catalog || []).find((c) => c.id === 'titan-smart-pro');
+      } else if (activeInboundText.includes('nebula') || activeInboundText.includes('18k gold') || activeInboundText.includes('145000')) {
+        currentWatch = (settings.catalog || []).find((c) => c.id === 'titan-nebula-gold');
+      } else if (activeInboundText.includes('neo') || activeInboundText.includes('classic brown')) {
+        currentWatch = (settings.catalog || []).find((c) => c.id === 'titan-neo-casual');
+      }
     }
   }
 
   const hasCustomerSelectedWatch = !!currentWatch;
   const watchName = currentWatch ? currentWatch.name : '';
   const watchPrice = currentWatch ? `₹${currentWatch.price.toLocaleString('en-IN')}` : '';
+  const hasKnownAddress = !!(thread.deliveryLocation?.raw && thread.deliveryLocation?.pincode && !thread.deliveryLocation?.pincodeMissing);
   const currentAddress = thread.deliveryLocation?.raw || 'your delivery address';
   const currentPin = thread.deliveryLocation?.pincode || '';
   const isEnglish = language === 'English';
@@ -342,25 +368,37 @@ ORDER CONFIRMATION (ONE-TIME):
   3. Payment method (Cash on Delivery or UPI).
   4. BlueDart express delivery in 2-4 business days.`;
       } else {
-        // Order already confirmed previously; DO NOT REPEAT location or addresses!
+        // Order already confirmed previously; REASSURE and DO NOT REPEAT address forms or ask for watch again!
         locationInstruction = `
 CLIENT CONTEXT (ORDER ALREADY CONFIRMED):
-- Delivery address and PIN (${thread.deliveryLocation.pincode}) are already verified and safely recorded in our system.
-- DO NOT repeat the full delivery address, GPS coordinates, or confirmation card again in this message!
-- Respond directly, naturally, and warmly to whatever the customer is asking in their current message (e.g. general questions, delivery queries, or friendly conversation).`;
+- An order for the customer has already been successfully confirmed in this conversation!
+- Delivery address and PIN (${thread.deliveryLocation.pincode}) are safely recorded in our system.
+- If the customer texts follow-up check-ins, marks, or confusion (such as "..?", "ok", "sure", "thanks", "kab milega", "status"):
+  Reassure them warmly that their order is locked in, high-priority, and scheduled for BlueDart express dispatch to ${thread.deliveryLocation.raw} within 2-4 business days.
+- CRITICAL: DO NOT ask them which watch they want to order or ask for their address again!`;
       }
     }
   } else {
     if (isOrderOrCheckout) {
-      locationInstruction = `
+      if (!hasCustomerSelectedWatch) {
+        locationInstruction = `
+ORDER EXPLORATION PROTOCOL (FIRST STEP MANDATORY):
+- The customer wants to purchase or explore watches, but has NOT chosen a specific watch model yet!
+- FIRST STEP DIRECTIVE: You MUST enthusiastically welcome their order and provide our interactive Digital Boutique link:
+  👉 ${catalogUrl}
+- Instruct them to view photos, prices, specifications, and tap "Select & Order on WhatsApp" or tell you which model they prefer.
+- DO NOT ask for their delivery address or phone number yet!`;
+      } else {
+        locationInstruction = `
 ORDER BOOKING & DISPATCH PROTOCOL:
-- The customer wants to purchase or order:
+- The customer wants to purchase ${watchName} (${watchPrice}):
   1. Confirm the watch model and quote the EXACT catalog price.
   2. Ask for their delivery details:
      - Full Name (for the delivery parcel)
      - Complete Delivery Address (House/Door No., Road/Street, Locality/Area, Landmark, City)
      - 6-Digit Postal PIN Code (Mandatory for express dispatch)
      - Payment Preference (COD or Prepaid UPI for 10% OFF with code ${settings.discountCode || 'TITAN10'})`;
+      }
     } else {
       locationInstruction = `
 CONCIERGE CONSULTATION:
@@ -412,6 +450,16 @@ ${
   👉 ${catalogUrl}
 
   Yahan aap photos dekh sakte hain aur direct 'Select & Order on WhatsApp' ya 'Add to Cart' tap kar sakte hain. Aap kaunsi watch order karna chahte hain? 🤍"`
+}`
+    : hasKnownAddress
+    ? `- The customer has selected: ${watchName} (${watchPrice}).
+- We ALREADY have this customer's verified delivery address on file: ${currentAddress} (PIN: ${currentPin}) and Phone: ${thread.phone || 'on file'}.
+- CRITICAL DIRECTIVE: DO NOT ask for their address, name, or phone number again! It is already recorded!
+- Enthusiastically acknowledge their selected timepiece (${watchName}${watchPrice ? ` - ${watchPrice}` : ''}), confirm delivery to their recorded address, and ask for their confirmation:
+${
+  isEnglish
+    ? `  "I'm delighted to help you with the ${watchName} (${watchPrice})! ✨ I already have your delivery address noted at ${currentAddress}. Would you like me to book this for express BlueDart dispatch via Cash on Delivery or prepaid UPI?"`
+    : `  "${watchName} (${watchPrice}) aapke liye perfect choice hai! ✨ Aapka delivery address ${currentAddress} already note hai. Kya main express BlueDart dispatch Cash on Delivery pe confirm kar du? 🤍"`
 }`
     : `- The customer has selected: ${watchName} (${watchPrice}).
 - Enthusiastically confirm the watch model (${watchName}${watchPrice ? ` - ${watchPrice}` : ''}).

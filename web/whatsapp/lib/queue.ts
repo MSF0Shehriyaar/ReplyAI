@@ -130,7 +130,264 @@ export async function queueStatus() {
   };
 }
 
-// ── Process Next Job ────────────────────────────────────────────────────
+// ── Process Jobs (Batched per Thread for Clean Bulk Replies) ─────────────
+
+export async function processThreadJobs(threadId: string): Promise<{ processed: number }> {
+  const s = await settings();
+
+  const queryResult = await db()
+    .prepare(
+      `SELECT * FROM wa_jobs WHERE thread_id=? AND status='pending' AND attempts<? AND created<=?
+       ORDER BY created ASC`
+    )
+    .bind(threadId, s.maxRetries ?? 3, Date.now())
+    .all();
+  const jobs = (queryResult?.results || []) as Job[];
+
+  if (!jobs.length) return { processed: 0 };
+
+  // Mark all pending jobs for this thread as processing immediately
+  for (const job of jobs) {
+    await db()
+      .prepare("UPDATE wa_jobs SET status='processing',attempts=attempts+1 WHERE id=?")
+      .bind(job.id)
+      .run();
+  }
+
+  try {
+    let thread = await getThread(threadId);
+    const isFirstMessage = !thread;
+    const firstEvent = JSON.parse(jobs[0].payload);
+
+    if (!thread) {
+      const customer = await getOrCreateCustomer(firstEvent.senderPhone, firstEvent.senderName);
+      thread = {
+        id: threadId,
+        name: firstEvent.senderName || firstEvent.senderPhone,
+        phone: firstEvent.senderPhone,
+        channel: firstEvent.channel || 'personal',
+        status: 'open',
+        takeover: false,
+        ai: true,
+        messages: [],
+        draft: '',
+        lastInbound: Date.now(),
+        recipientId: firstEvent.jid || firstEvent.senderPhone,
+        updated: Date.now(),
+        version: 0,
+        priority: customer.vip ? 'high' : 'normal',
+        tags: [],
+        customerProfile: customer,
+      };
+    }
+
+    // Accumulate all incoming messages from this batch into the thread
+    const incomingTexts: string[] = [];
+    for (const job of jobs) {
+      const event = JSON.parse(job.payload);
+      if (event.jid) thread.recipientId = event.jid;
+
+      const newMessage: WAMessage = {
+        id: event.id || crypto.randomUUID(),
+        role: 'incoming',
+        text: event.text || '',
+        mediaType: event.mediaType,
+        at: event.at || Date.now(),
+        senderName: event.senderName,
+        senderPhone: event.senderPhone,
+      };
+      thread.messages.push(newMessage);
+      thread.lastInbound = newMessage.at;
+      if (event.text?.trim()) incomingTexts.push(event.text.trim());
+    }
+
+    thread.status = 'open';
+    thread.updated = Date.now();
+
+    const compositeText = incomingTexts.join('\n');
+
+    // Extract real phone number and name from composite message text
+    if (compositeText) {
+      const phoneMatch = compositeText.match(/\b([6-9][0-9]{9})\b/);
+      if (phoneMatch) {
+        thread.phone = `+91 ${phoneMatch[1]}`;
+      }
+
+      const lines = compositeText.split('\n').map((l: string) => l.trim()).filter(Boolean);
+      if (lines.length >= 2 && phoneMatch) {
+        const nameCandidate = lines.find((l: string) => !/\d/.test(l) && !/cash|upi|cod|card|net|bank|pay/i.test(l) && l.length >= 2 && l.length <= 30);
+        if (nameCandidate) {
+          thread.name = nameCandidate;
+        }
+      } else {
+        const nameMatch = compositeText.match(/(?:my name is|i am|this is|naam)\s+([A-Za-z\s]{2,25})/i);
+        if (nameMatch && nameMatch[1]) {
+          thread.name = nameMatch[1].trim();
+        }
+      }
+    }
+
+    // Update customer profile
+    const customer = await getOrCreateCustomer(thread.phone, thread.name);
+    customer.name = thread.name;
+    customer.lastContact = Date.now();
+    customer.totalMessages += jobs.length;
+    thread.customerProfile = customer;
+
+    // Auto-tag
+    if (s.autoTagEnabled && compositeText) {
+      const newTags = autoTag(compositeText);
+      for (const tag of newTags) {
+        if (!thread.tags.includes(tag)) thread.tags.push(tag);
+      }
+    }
+
+    // Address & Delivery Location Detection & Geocoding
+    if (compositeText) {
+      try {
+        const { parseAndMapAddress } = await import('./location-service');
+        const parsedLoc = await parseAndMapAddress(compositeText, thread.deliveryLocation);
+        if (parsedLoc) {
+          thread.deliveryLocation = parsedLoc;
+          customer.deliveryLocation = parsedLoc;
+          if (parsedLoc.raw) customer.address = parsedLoc.raw;
+          if (parsedLoc.city) customer.city = parsedLoc.city;
+
+          if (parsedLoc.pincodeMissing) {
+            if (!thread.tags.includes('missing_pincode')) thread.tags.push('missing_pincode');
+            thread.tags = thread.tags.filter((t) => t !== 'address_verified');
+          } else {
+            if (!thread.tags.includes('address_verified')) thread.tags.push('address_verified');
+            thread.tags = thread.tags.filter((t) => t !== 'missing_pincode');
+          }
+        }
+      } catch (locErr) {
+        console.error('[WA] Address parsing error:', locErr);
+      }
+    }
+
+    // Check if order is confirmed from composite incoming messages
+    await syncOrderIfConfirmed(thread, compositeText, null, s, customer);
+
+    // Sentiment analysis
+    if (s.sentimentAnalysisEnabled && compositeText) {
+      thread.sentiment = analyzeSentiment(compositeText);
+    }
+
+    // Check for sensitive content
+    if (compositeText) {
+      const flag = reviewFlag(compositeText);
+      if (flag) {
+        thread.flagged = flag;
+        thread.status = 'escalated';
+        thread.priority = 'urgent';
+        await saveThread(thread);
+        await saveCustomerProfile(customer);
+        for (const j of jobs) {
+          await db().prepare("UPDATE wa_jobs SET status='done' WHERE id=?").bind(j.id).run();
+        }
+        await audit('Flagged', `${flag} — ${thread.name}`);
+        return { processed: jobs.length };
+      }
+    }
+
+    // Check escalation rules
+    const escalated = await checkEscalation(thread, s);
+    if (escalated) {
+      await saveThread(thread);
+      await saveCustomerProfile(customer);
+      for (const j of jobs) {
+        await db().prepare("UPDATE wa_jobs SET status='done' WHERE id=?").bind(j.id).run();
+      }
+      return { processed: jobs.length };
+    }
+
+    // Check auto-reply rules
+    const withinHours = isBusinessHours(s);
+    const autoReply = matchAutoReplyRule(
+      s.autoReplyRules,
+      compositeText,
+      thread.channel,
+      isFirstMessage,
+      withinHours
+    );
+
+    if (autoReply) {
+      const replyText =
+        autoReply.response ||
+        (autoReply.triggerType === 'first_message' ? s.welcomeMessage : '') ||
+        (autoReply.triggerType === 'time' ? s.awayMessage : '');
+
+      if (replyText && !s.approval) {
+        await sendReply(thread, replyText);
+        for (const j of jobs) {
+          await db().prepare("UPDATE wa_jobs SET status='done' WHERE id=?").bind(j.id).run();
+        }
+        return { processed: jobs.length };
+      } else if (replyText) {
+        thread.draft = replyText;
+        thread.status = 'review';
+        await saveThread(thread);
+        await saveCustomerProfile(customer);
+        for (const j of jobs) {
+          await db().prepare("UPDATE wa_jobs SET status='done' WHERE id=?").bind(j.id).run();
+        }
+        return { processed: jobs.length };
+      }
+    }
+
+    // Skip AI if takeover mode
+    if (thread.takeover || !thread.ai || !s.enabled) {
+      await saveThread(thread);
+      await saveCustomerProfile(customer);
+      for (const j of jobs) {
+        await db().prepare("UPDATE wa_jobs SET status='done' WHERE id=?").bind(j.id).run();
+      }
+      return { processed: jobs.length };
+    }
+
+    // Generate SINGLE cohesive AI reply for the combined incoming messages
+    console.log(`[WA] 🤖 Generating bulk AI reply for ${thread.name} (${thread.phone}) [${jobs.length} message(s)]...`);
+    const startTime = Date.now();
+    const draft = await generateReply(thread);
+    thread.responseTimeMs = Date.now() - startTime;
+    console.log(`[WA] 💡 AI response generated in ${thread.responseTimeMs}ms: "${draft.slice(0, 60)}..."`);
+
+    if (draft) {
+      if (s.approval) {
+        console.log(`[WA] 📝 Approval mode is ON: saved as review draft for ${thread.name}`);
+        thread.draft = draft;
+        thread.status = 'review';
+        await saveThread(thread);
+      } else {
+        const delay = thread.channel === 'group' ? s.groupReplyDelaySeconds : s.personalReplyDelaySeconds;
+        if (delay > 0) {
+          console.log(`[WA] ⏳ Waiting ${delay}s delay before sending...`);
+          await new Promise((r) => setTimeout(r, delay * 1000));
+        }
+        console.log(`[WA] 🚀 Auto-sending single consolidated reply to ${thread.name}...`);
+        await sendReply(thread, draft);
+      }
+
+      // Auto-sync order if confirmed in reply or draft
+      await syncOrderIfConfirmed(thread, compositeText, draft, s, customer);
+    } else {
+      await saveThread(thread);
+    }
+
+    await saveCustomerProfile(customer);
+    for (const j of jobs) {
+      await db().prepare("UPDATE wa_jobs SET status='done' WHERE id=?").bind(j.id).run();
+    }
+    return { processed: jobs.length };
+  } catch (err) {
+    console.error(`[WA] Error in processThreadJobs for ${threadId}:`, err);
+    for (const j of jobs) {
+      await db().prepare("UPDATE wa_jobs SET status='pending' WHERE id=?").bind(j.id).run();
+    }
+    return { processed: 0 };
+  }
+}
 
 export async function processNextJob(): Promise<{ processed: number }> {
   const s = await settings();
@@ -146,246 +403,18 @@ export async function processNextJob(): Promise<{ processed: number }> {
 
   const queryResult = await db()
     .prepare(
-      `SELECT * FROM wa_jobs WHERE status='pending' AND attempts<? AND created<=?
-       ORDER BY created ASC LIMIT 10`
+      `SELECT DISTINCT thread_id FROM wa_jobs WHERE status='pending' AND attempts<? AND created<=? LIMIT 5`
     )
     .bind(s.maxRetries ?? 3, Date.now())
     .all();
-  const candidateJobs = (queryResult?.results || []) as Job[];
+  const threadRows = (queryResult?.results || []) as { thread_id: string }[];
 
-  if (!candidateJobs.length) return { processed: 0 };
+  if (!threadRows.length) return { processed: 0 };
 
   let processed = 0;
-
-  for (const job of candidateJobs) {
-    try {
-      // Mark as processing
-      await db()
-        .prepare("UPDATE wa_jobs SET status='processing',attempts=attempts+1 WHERE id=?")
-        .bind(job.id)
-        .run();
-
-      const event = JSON.parse(job.payload);
-      const threadId = event.threadId || `wa:${event.senderPhone}`;
-
-      // Get or create thread
-      let thread = await getThread(threadId);
-      const isFirstMessage = !thread;
-
-      if (!thread) {
-        const customer = await getOrCreateCustomer(event.senderPhone, event.senderName);
-        thread = {
-          id: threadId,
-          name: event.senderName || event.senderPhone,
-          phone: event.senderPhone,
-          channel: event.channel || 'personal',
-          status: 'open',
-          takeover: false,
-          ai: true,
-          messages: [],
-          draft: '',
-          lastInbound: Date.now(),
-          recipientId: event.jid || event.senderPhone,
-          updated: Date.now(),
-          version: 0,
-          priority: customer.vip ? 'high' : 'normal',
-          tags: [],
-          customerProfile: customer,
-        };
-      } else {
-        if (event.jid) thread.recipientId = event.jid;
-      }
-
-      // Add incoming message
-      const newMessage: WAMessage = {
-        id: event.id || crypto.randomUUID(),
-        role: 'incoming',
-        text: event.text || '',
-        mediaType: event.mediaType,
-        at: event.at || Date.now(),
-        senderName: event.senderName,
-        senderPhone: event.senderPhone,
-      };
-      thread.messages.push(newMessage);
-      thread.lastInbound = newMessage.at;
-      thread.status = 'open';
-      thread.updated = Date.now();
-
-      // Extract real phone number and name from message text if shared by customer
-      if (event.text) {
-        const phoneMatch = event.text.match(/\b([6-9][0-9]{9})\b/);
-        if (phoneMatch) {
-          thread.phone = `+91 ${phoneMatch[1]}`;
-        }
-
-        const lines = event.text.split('\n').map((l: string) => l.trim()).filter(Boolean);
-        if (lines.length >= 2 && phoneMatch) {
-          const nameCandidate = lines.find((l: string) => !/\d/.test(l) && !/cash|upi|cod|card|net|bank|pay/i.test(l) && l.length >= 2 && l.length <= 30);
-          if (nameCandidate) {
-            thread.name = nameCandidate;
-          }
-        } else {
-          const nameMatch = event.text.match(/(?:my name is|i am|this is|naam)\s+([A-Za-z\s]{2,25})/i);
-          if (nameMatch && nameMatch[1]) {
-            thread.name = nameMatch[1].trim();
-          }
-        }
-      }
-
-      // Update customer profile
-      const customer = await getOrCreateCustomer(thread.phone, thread.name);
-      customer.name = thread.name;
-      customer.lastContact = Date.now();
-      customer.totalMessages++;
-      thread.customerProfile = customer;
-
-      // Auto-tag
-      if (s.autoTagEnabled && event.text) {
-        const newTags = autoTag(event.text);
-        for (const tag of newTags) {
-          if (!thread.tags.includes(tag)) thread.tags.push(tag);
-        }
-      }
-
-      // Address & Delivery Location Detection & Geocoding
-      if (event.text) {
-        try {
-          const { parseAndMapAddress } = await import('./location-service');
-          const parsedLoc = await parseAndMapAddress(event.text, thread.deliveryLocation);
-          if (parsedLoc) {
-            thread.deliveryLocation = parsedLoc;
-            customer.deliveryLocation = parsedLoc;
-            if (parsedLoc.raw) customer.address = parsedLoc.raw;
-            if (parsedLoc.city) customer.city = parsedLoc.city;
-
-            if (parsedLoc.pincodeMissing) {
-              if (!thread.tags.includes('missing_pincode')) thread.tags.push('missing_pincode');
-              thread.tags = thread.tags.filter((t) => t !== 'address_verified');
-            } else {
-              if (!thread.tags.includes('address_verified')) thread.tags.push('address_verified');
-              thread.tags = thread.tags.filter((t) => t !== 'missing_pincode');
-            }
-          }
-        } catch (locErr) {
-          console.error('[WA] Address parsing error:', locErr);
-        }
-      }
-
-      // Check if order is confirmed from customer message
-      await syncOrderIfConfirmed(thread, event.text || '', null, s, customer);
-
-      // Sentiment analysis
-      if (s.sentimentAnalysisEnabled && event.text) {
-        thread.sentiment = analyzeSentiment(event.text);
-      }
-
-      // Check for sensitive content
-      if (event.text) {
-        const flag = reviewFlag(event.text);
-        if (flag) {
-          thread.flagged = flag;
-          thread.status = 'escalated';
-          thread.priority = 'urgent';
-          await saveThread(thread);
-          await saveCustomerProfile(customer);
-          await db().prepare("UPDATE wa_jobs SET status='done' WHERE id=?").bind(job.id).run();
-          await audit('Flagged', `${flag} — ${thread.name}`);
-          processed++;
-          continue;
-        }
-      }
-
-      // Check escalation rules
-      const escalated = await checkEscalation(thread, s);
-      if (escalated) {
-        await saveThread(thread);
-        await saveCustomerProfile(customer);
-        await db().prepare("UPDATE wa_jobs SET status='done' WHERE id=?").bind(job.id).run();
-        processed++;
-        continue;
-      }
-
-      // Check auto-reply rules
-      const withinHours = isBusinessHours(s);
-      const autoReply = matchAutoReplyRule(
-        s.autoReplyRules,
-        event.text || '',
-        thread.channel,
-        isFirstMessage,
-        withinHours
-      );
-
-      if (autoReply) {
-        const replyText =
-          autoReply.response ||
-          (autoReply.triggerType === 'first_message' ? s.welcomeMessage : '') ||
-          (autoReply.triggerType === 'time' ? s.awayMessage : '');
-
-        if (replyText && !s.approval) {
-          await sendReply(thread, replyText);
-          await db().prepare("UPDATE wa_jobs SET status='done' WHERE id=?").bind(job.id).run();
-          processed++;
-          continue;
-        } else if (replyText) {
-          thread.draft = replyText;
-          thread.status = 'review';
-          await saveThread(thread);
-          await saveCustomerProfile(customer);
-          await db().prepare("UPDATE wa_jobs SET status='done' WHERE id=?").bind(job.id).run();
-          processed++;
-          continue;
-        }
-      }
-
-      // Skip AI if takeover mode
-      if (thread.takeover || !thread.ai || !s.enabled) {
-        await saveThread(thread);
-        await saveCustomerProfile(customer);
-        await db().prepare("UPDATE wa_jobs SET status='done' WHERE id=?").bind(job.id).run();
-        processed++;
-        continue;
-      }
-
-      // Generate AI reply
-      console.log(`[WA] 🤖 Generating AI reply for ${thread.name} (${thread.phone})...`);
-      const startTime = Date.now();
-      const draft = await generateReply(thread);
-      thread.responseTimeMs = Date.now() - startTime;
-      console.log(`[WA] 💡 AI response generated in ${thread.responseTimeMs}ms: "${draft.slice(0, 60)}..."`);
-
-      if (draft) {
-        if (s.approval) {
-          console.log(`[WA] 📝 Approval mode is ON: saved as review draft for ${thread.name}`);
-          thread.draft = draft;
-          thread.status = 'review';
-          await saveThread(thread);
-        } else {
-          // Apply delay
-          const delay = thread.channel === 'group' ? s.groupReplyDelaySeconds : s.personalReplyDelaySeconds;
-          if (delay > 0) {
-            console.log(`[WA] ⏳ Waiting ${delay}s delay before sending...`);
-            await new Promise((r) => setTimeout(r, delay * 1000));
-          }
-          console.log(`[WA] 🚀 Auto-sending reply to ${thread.name}...`);
-          await sendReply(thread, draft);
-        }
-
-        // Auto-sync order if confirmed in reply or draft
-        await syncOrderIfConfirmed(thread, event.text || '', draft, s, customer);
-      } else {
-        await saveThread(thread);
-      }
-
-      await saveCustomerProfile(customer);
-      await db().prepare("UPDATE wa_jobs SET status='done' WHERE id=?").bind(job.id).run();
-      processed++;
-    } catch (err) {
-      console.error('Job processing error:', err);
-      await db()
-        .prepare("UPDATE wa_jobs SET status='pending' WHERE id=?")
-        .bind(job.id)
-        .run();
-    }
+  for (const row of threadRows) {
+    const res = await processThreadJobs(row.thread_id);
+    processed += res.processed;
   }
 
   return { processed };
