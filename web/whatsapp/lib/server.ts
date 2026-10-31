@@ -340,9 +340,13 @@ export async function reconcileOrdersWithThreads(): Promise<void> {
       const isUpi = /upi|online|prepaid/i.test(fullChat);
 
       for (const item of parsedOrders) {
-        // Match existing order strictly by exact amount and product name within this thread
+        // Match existing order intelligently by product ID or normalized name and amount
+        const norm = (s: string) => (s || '').replace(/\s*\(x1\)/gi, '').trim().toLowerCase();
         let order = existingOrders.find(
-          (o) => o.threadId === thread.id && o.amount === item.amount && o.productName === item.productName
+          (o) =>
+            o.threadId === thread.id &&
+            (o.productId === item.productId || norm(o.productName) === norm(item.productName)) &&
+            Math.abs(o.amount - item.amount) < 10
         );
 
         const orderCustName = item.customerName !== 'Customer' ? item.customerName : (thread.name || 'Customer');
@@ -426,7 +430,8 @@ export async function allOrders(): Promise<WAOrder[]> {
       .prepare('SELECT payload FROM wa_orders ORDER BY created DESC LIMIT 200')
       .all<{ payload: string }>()
   ).results;
-  return rows.map((r) => {
+
+  const rawOrders = rows.map((r) => {
     const order = JSON.parse(r.payload) as WAOrder;
     if (order.deliveryLocation?.raw && /mohommadiya|mohammadiya|shanthinagar|shantinagar/i.test(order.deliveryLocation.raw)) {
       order.deliveryLocation.lat = 12.3297;
@@ -436,6 +441,45 @@ export async function allOrders(): Promise<WAOrder[]> {
     }
     return order;
   });
+
+  // Deduplicate orders belonging to the same thread and product/amount
+  const norm = (s: string) => (s || '').replace(/\s*\(x1\)/gi, '').trim().toLowerCase();
+  const uniqueOrders: WAOrder[] = [];
+  const duplicateIdsToDelete: string[] = [];
+
+  for (const o of rawOrders) {
+    const existing = uniqueOrders.find(
+      (u) =>
+        u.threadId === o.threadId &&
+        (u.productId === o.productId || norm(u.productName) === norm(o.productName)) &&
+        Math.abs(u.amount - o.amount) < 10
+    );
+
+    if (existing) {
+      // Merge best details
+      if (!existing.deliveryLocation?.pincode && o.deliveryLocation?.pincode) {
+        existing.deliveryLocation = o.deliveryLocation;
+      }
+      if (o.paymentMode && existing.paymentMode === 'COD' && o.paymentMode === 'UPI') {
+        existing.paymentMode = 'UPI';
+        existing.paymentStatus = 'paid';
+      }
+      duplicateIdsToDelete.push(o.id);
+    } else {
+      uniqueOrders.push(o);
+    }
+  }
+
+  // Purge duplicate rows from database asynchronously in background
+  if (duplicateIdsToDelete.length > 0) {
+    Promise.all(
+      duplicateIdsToDelete.map((dupId) =>
+        db().prepare('DELETE FROM wa_orders WHERE id=?').bind(dupId).run().catch(() => {})
+      )
+    ).catch(() => {});
+  }
+
+  return uniqueOrders;
 }
 
 export async function getOrder(id: string): Promise<WAOrder | null> {

@@ -439,7 +439,7 @@ async function syncOrderIfConfirmed(
       );
 
     // AI feedback is primary; AI draft confirmation and regex serve as safety net
-    const isConfirmed = aiFeedback.isConfirmed || isAIDraftConfirming || isCustomerRegexConfirming;
+    const isConfirmed = isAIDraftConfirming || ((aiFeedback.isConfirmed || isCustomerRegexConfirming) && (loc?.raw || (eventText && /(?:#|cross|main|street|road|layout|nagar|colony|mysore|pincode|\b\d{6}\b)/i.test(eventText))));
 
     if (!isConfirmed) {
       console.log(`[WA] ℹ️ Customer message not recognized as confirmation by AI or rules.`);
@@ -477,9 +477,13 @@ async function syncOrderIfConfirmed(
     const currentCustPhone = targetOrderData.customerPhone || thread.phone || customer.phone || '';
     const orderDeliveryLocation = targetOrderData.deliveryLocation || loc;
 
-    // Match strictly by exact amount and product name within this thread to never clobber existing orders
+    // Match intelligently by product ID or normalized name and amount within this thread to never create duplicates
+    const norm = (s: string) => (s || '').replace(/\s*\(x1\)/gi, '').trim().toLowerCase();
     let order = existingOrders.find(
-      (o) => o.threadId === thread.id && o.amount === targetOrderData.amount && o.productName === targetOrderData.productName
+      (o) =>
+        o.threadId === thread.id &&
+        (o.productId === targetProductId || norm(o.productName) === norm(targetOrderData.productName)) &&
+        Math.abs(o.amount - targetOrderData.amount) < 10
     );
 
     const targetOrderStatus = isReadyForDispatch ? 'ready_for_dispatch' : 'confirmed';

@@ -183,7 +183,9 @@ export function extractOrdersFromThread(
         /(?:Final Payable|Total Payable|Grand Total|Payable)\s*(?::|—|-)?\s*₹?\s*([0-9,]+)/i
       );
       const amount = payableMatch ? parseInt(payableMatch[1].replace(/,/g, ''), 10) : subtotal - discount;
-      const summaryName = bulkItems.map((b) => `${b.productName} (x${b.quantity})`).join(', ');
+      const summaryName = bulkItems.length === 1
+        ? bulkItems[0].productName
+        : bulkItems.map((b) => `${b.productName} (x${b.quantity})`).join(', ');
 
       if (!confirmedOrders.some((co) => co.amount === amount && co.quantity === totalQty)) {
         confirmedOrders.push({
