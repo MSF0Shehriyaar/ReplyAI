@@ -71,7 +71,7 @@ const whatsappService = startService(
 
 // ── Reverse Proxy Gateway ──────────────────────────────────────────────────
 
-function routeTarget(urlPath) {
+function routeTarget(urlPath, req) {
   if (
     urlPath.startsWith('/whatsapp') ||
     urlPath.startsWith('/catalog') ||
@@ -81,12 +81,19 @@ function routeTarget(urlPath) {
   ) {
     return { host: '127.0.0.1', port: whatsappPort };
   }
+
+  // Check Referer header for _next static assets & chunks
+  const referer = (req && req.headers && (req.headers.referer || req.headers.Referer)) || '';
+  if (urlPath.startsWith('/_next/') || urlPath.startsWith('/__next')) {
+    if (referer.includes('/whatsapp') || referer.includes('/catalog')) {
+      return { host: '127.0.0.1', port: whatsappPort };
+    }
+  }
+
   return { host: '127.0.0.1', port: instagramPort };
 }
 
-const server = http.createServer((req, res) => {
-  const target = routeTarget(req.url || '/');
-
+function forwardRequest(req, res, target, isRetry = false) {
   const proxyReq = http.request(
     {
       host: target.host,
@@ -101,14 +108,26 @@ const server = http.createServer((req, res) => {
       },
     },
     (proxyRes) => {
+      // If a Next.js static asset / chunk returns 404 from one service, fallback to the other service!
+      const isNextAsset = req.url && (req.url.startsWith('/_next/') || req.url.startsWith('/__next'));
+      if (proxyRes.statusCode === 404 && isNextAsset && !isRetry && (req.method === 'GET' || req.method === 'HEAD')) {
+        const altPort = target.port === whatsappPort ? instagramPort : whatsappPort;
+        forwardRequest(req, res, { host: '127.0.0.1', port: altPort }, true);
+        return;
+      }
+
       res.writeHead(proxyRes.statusCode || 200, proxyRes.headers);
       proxyRes.pipe(res, { end: true });
     }
   );
 
   proxyReq.on('error', (err) => {
-    // If services are still booting, provide a friendly loading response
     if (res.headersSent) return;
+    if (!isRetry && (req.method === 'GET' || req.method === 'HEAD')) {
+      const altPort = target.port === whatsappPort ? instagramPort : whatsappPort;
+      forwardRequest(req, res, { host: '127.0.0.1', port: altPort }, true);
+      return;
+    }
     res.writeHead(502, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(`
       <html>
@@ -125,11 +144,16 @@ const server = http.createServer((req, res) => {
   });
 
   req.pipe(proxyReq, { end: true });
+}
+
+const server = http.createServer((req, res) => {
+  const target = routeTarget(req.url || '/', req);
+  forwardRequest(req, res, target);
 });
 
 // WebSocket upgrade handling for Hot Module Reloading & live sockets
 server.on('upgrade', (req, socket, head) => {
-  const target = routeTarget(req.url || '/');
+  const target = routeTarget(req.url || '/', req);
   const proxyReq = http.request({
     host: target.host,
     port: target.port,
