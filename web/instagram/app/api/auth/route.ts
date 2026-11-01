@@ -3,9 +3,8 @@ import { readState, writeState, db } from '@/lib/server';
 
 // In-memory brute-force protection
 const failedAttempts = new Map<string, { count: number; lockedUntil: number }>();
-const DEFAULT_PIN = '123456';
 const SESSION_COOKIE_NAME = 'nina_owner_session';
-const SECRET_SIGN_KEY = 'nina_secure_owner_auth_key_2026';
+const SECRET_SIGN_KEY = process.env.SESSION_SIGNING_KEY || '';
 
 export interface OwnerCredentials {
   username?: string;
@@ -42,6 +41,7 @@ export async function hashString(value: string, salt: string): Promise<string> {
 }
 
 export async function signToken(payload: string): Promise<string> {
+  if (SECRET_SIGN_KEY.length < 32) throw new Error('Session signing is not configured.');
   const enc = new TextEncoder();
   const key = await crypto.subtle.importKey(
     'raw',
@@ -56,27 +56,8 @@ export async function signToken(payload: string): Promise<string> {
 }
 
 export async function verifyToken(token: string): Promise<boolean> {
-  try {
-    const [payloadB64, sigHex] = token.split('.');
-    if (!payloadB64 || !sigHex) return false;
-    const payload = atob(payloadB64);
-    const enc = new TextEncoder();
-    const key = await crypto.subtle.importKey(
-      'raw',
-      enc.encode(SECRET_SIGN_KEY),
-      { name: 'HMAC', hash: 'SHA-256' },
-      false,
-      ['verify']
-    );
-    const sigBytes = new Uint8Array(sigHex.match(/../g)!.map(h => parseInt(h, 16)));
-    const valid = await crypto.subtle.verify('HMAC', key, sigBytes, enc.encode(payload));
-    if (!valid) return false;
-    const data = JSON.parse(payload);
-    if (data.exp && Date.now() > data.exp) return false;
-    return true;
-  } catch {
-    return false;
-  }
+  return (await import('@/lib/owner-session')).validOwnerSession(token);
+
 }
 
 export async function GET(req: NextRequest) {
@@ -158,64 +139,7 @@ export async function POST(req: NextRequest) {
 
     // ACTION: SIGN UP (First-time permanent credentials setup)
     if (action === 'signup') {
-      if (creds?.hasSignedUp) {
-        return NextResponse.json(
-          { error: 'An owner account is already registered. Please sign in.' },
-          { status: 409 }
-        );
-      }
-
-      const username = String(body?.username || '').trim();
-      const password = String(body?.password || '').trim();
-      const pin = String(body?.pin || '').trim();
-
-      if (!username || username.length < 3) {
-        return NextResponse.json({ error: 'Username must be at least 3 characters long.' }, { status: 400 });
-      }
-      if (!password || password.length < 6) {
-        return NextResponse.json({ error: 'Password must be at least 6 characters long.' }, { status: 400 });
-      }
-
-      const salt = crypto.randomUUID();
-      const passwordHash = await hashString(password, salt);
-      const usernameHash = await hashString(username.toLowerCase(), salt);
-      const pinHash = pin ? await hashString(pin, salt) : undefined;
-
-      const newCreds: OwnerCredentials = {
-        username,
-        usernameHash,
-        passwordHash,
-        pinHash,
-        pin: pin || undefined,
-        salt,
-        hasSignedUp: true,
-        createdAt: now
-      };
-
-      await writeState('owner_credentials', newCreds);
-
-      // Create session for the new owner
-      const token = await signToken(JSON.stringify({
-        user: username,
-        iat: now,
-        exp: now + 30 * 24 * 60 * 60 * 1000
-      }));
-
-      const res = NextResponse.json({
-        ok: true,
-        registered: true,
-        user: { userId: 'owner', displayName: username }
-      });
-
-      res.cookies.set(SESSION_COOKIE_NAME, token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        path: '/',
-        maxAge: 30 * 24 * 60 * 60
-      });
-
-      return res;
+      return NextResponse.json({ error: 'Public owner registration is disabled.' }, { status: 403 });
     }
 
     // ACTION: LOGIN USING USERNAME + PASSWORD OR PIN
@@ -250,8 +174,8 @@ export async function POST(req: NextRequest) {
       }
     } else {
       // Fallback to configured pin before signup
-      const expectedPin = process.env.OWNER_PIN || DEFAULT_PIN;
-      if (enteredPass === expectedPin) {
+      const expectedPin = process.env.OWNER_PIN;
+      if (expectedPin && expectedPin.length >= 12 && enteredPass === expectedPin) {
         authenticated = true;
       }
     }

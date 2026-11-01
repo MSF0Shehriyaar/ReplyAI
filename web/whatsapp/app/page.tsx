@@ -287,32 +287,7 @@ export default function WhatsAppCommandCenter() {
             🛍️ Catalog ↗
           </a>
 
-          {/* Instagram Control Room — Nina Admin Only */}
-          {workspace.isNinaAdmin && (
-            <a
-              href="https://automation.ninakurainservices.in"
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 5,
-                background: 'rgba(115, 84, 218, 0.12)',
-                border: '1px solid rgba(115, 84, 218, 0.35)',
-                color: '#c4b5fd',
-                padding: '5px 12px',
-                borderRadius: 8,
-                fontSize: 11.5,
-                fontWeight: 600,
-                textDecoration: 'none',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              📸 Instagram ↗
-            </a>
-          )}
-
-          {/* Nina Admin Badge / Login */}
+          {/* Master Admin Panel link — only visible when authenticated as Nina */}
           {workspace.isNinaAdmin ? (
             <div
               style={{
@@ -329,24 +304,45 @@ export default function WhatsAppCommandCenter() {
                 whiteSpace: 'nowrap',
               }}
             >
-              <span style={{ cursor: 'pointer' }} onClick={() => setActiveTab('admin')} title="Open Admin Panel">
-                👑 Nina Admin
+              <span style={{ cursor: 'pointer' }} onClick={() => setActiveTab('admin')} title="Open Master Admin Oversight">
+                👑 Nina Master Admin
               </span>
               <button
-                onClick={async () => { await api('admin-logout'); await refresh(); setActiveTab('inbox'); showToast('Signed out from Nina Admin'); }}
+                onClick={async () => {
+                  await fetch('/api/whatsapp/auth', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'logout' }),
+                  }).catch(() => {});
+                  await refresh();
+                  setActiveTab('inbox');
+                  showToast('Signed out successfully');
+                }}
                 style={{ background: 'none', border: 'none', color: '#a78bfa', cursor: 'pointer', fontSize: 10, textDecoration: 'underline', padding: 0 }}
-              >Logout</button>
+              >
+                Logout
+              </button>
             </div>
           ) : (
             <button
               onClick={() => setShowAdminLoginModal(true)}
               style={{
-                display: 'inline-flex', alignItems: 'center', gap: 5,
-                background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)',
-                padding: '5px 10px', borderRadius: 8, fontSize: 11, fontWeight: 600,
-                color: '#64748b', cursor: 'pointer', whiteSpace: 'nowrap',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+                background: 'rgba(255,255,255,0.06)',
+                border: '1px solid rgba(255,255,255,0.14)',
+                padding: '5px 12px',
+                borderRadius: 8,
+                fontSize: 11.5,
+                fontWeight: 600,
+                color: '#cbd5e1',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
               }}
-            >🔒 Nina Login</button>
+            >
+              🔐 Sign In / Register
+            </button>
           )}
 
           {/* WhatsApp Connection Status */}
@@ -2954,28 +2950,6 @@ function NinaAdminView({
           >
             <span>➕ Onboard Client Business</span>
           </button>
-
-          <a
-            href="https://automation.ninakurainservices.in"
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{
-              background: 'linear-gradient(135deg, #7354da 0%, #5833b8 100%)',
-              color: '#ffffff',
-              border: 'none',
-              padding: '10px 18px',
-              borderRadius: 10,
-              fontSize: 13,
-              fontWeight: 700,
-              textDecoration: 'none',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 8,
-              boxShadow: '0 4px 14px rgba(115, 84, 218, 0.35)',
-            }}
-          >
-            <span>📸 Instagram Control Room ↗</span>
-          </a>
         </div>
       </div>
 
@@ -3311,12 +3285,30 @@ function NinaAdminView({
 
                     <td style={{ padding: '14px' }}>
                       <div style={{ color: '#cbd5e1', fontSize: 12 }}>
-                        {acc.threadCount || workspace.threads?.length || 0} chats · {acc.orderCount || workspace.orders?.length || 0} orders
+                        {acc.threadCount || 0} chats · {acc.orderCount || 0} orders
+                      </div>
+                      <div style={{ marginTop: 4 }}>
+                        <span
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            padding: '2px 8px',
+                            borderRadius: 6,
+                            fontSize: 10,
+                            fontWeight: 700,
+                            background: acc.status === 'suspended' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)',
+                            color: acc.status === 'suspended' ? '#f87171' : '#34d399',
+                            border: `1px solid ${acc.status === 'suspended' ? 'rgba(239, 68, 68, 0.3)' : 'rgba(16, 185, 129, 0.3)'}`,
+                          }}
+                        >
+                          {acc.status === 'suspended' ? '⏸ SUSPENDED' : '● ACTIVE'}
+                        </span>
                       </div>
                     </td>
 
                     <td style={{ padding: '14px', textAlign: 'right' }}>
-                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, alignItems: 'center' }}>
                         <button
                           onClick={() => onSwitchBusiness(acc.id)}
                           style={{
@@ -3330,10 +3322,32 @@ function NinaAdminView({
                             cursor: 'pointer',
                           }}
                         >
-                          {isActive ? '✓ In Workspace' : 'Switch ➔'}
+                          {isActive ? '✓ In Workspace' : 'Inspect ➔'}
                         </button>
 
-                        {registeredAccounts.length > 1 && (
+                        {acc.id !== 'biz_titan_watches' && (
+                          <button
+                            onClick={async () => {
+                              const action = acc.status === 'suspended' ? 'reactivate-business' : 'suspend-business';
+                              await onAction(action, { businessId: acc.id });
+                            }}
+                            style={{
+                              background: acc.status === 'suspended' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                              color: acc.status === 'suspended' ? '#34d399' : '#f87171',
+                              border: `1px solid ${acc.status === 'suspended' ? 'rgba(16, 185, 129, 0.35)' : 'rgba(239, 68, 68, 0.35)'}`,
+                              padding: '5px 10px',
+                              borderRadius: 6,
+                              fontSize: 11,
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                            }}
+                            title={acc.status === 'suspended' ? 'Reactivate tenant' : 'Suspend tenant'}
+                          >
+                            {acc.status === 'suspended' ? '✓ Reactivate' : '⏸ Suspend'}
+                          </button>
+                        )}
+
+                        {registeredAccounts.length > 1 && acc.id !== 'biz_titan_watches' && (
                           <button
                             onClick={() => {
                               if (confirm(`Remove client business "${acc.name}" from WhatsApp automation?`)) {
@@ -3367,7 +3381,7 @@ function NinaAdminView({
   );
 }
 
-// ── Admin Login Modal ──────────────────────────────────────────────────
+// ── Multi-Tenant Authentication & Free Onboarding Modal ─────────────────
 function AdminLoginModal({
   onClose,
   onSuccess,
@@ -3375,19 +3389,63 @@ function AdminLoginModal({
   onClose: () => void;
   onSuccess: () => void;
 }) {
-  const [pin, setPin] = useState('');
+  const [tab, setTab] = useState<'signin' | 'register'>('signin');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [businessName, setBusinessName] = useState('');
+  const [ownerName, setOwnerName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [category, setCategory] = useState('Luxury Watches & Boutique');
+  const [tagline, setTagline] = useState('Timeless Craftsmanship, Modern Innovation');
+  const [themeColor, setThemeColor] = useState('#10b981');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setBusy(true);
     try {
-      await api('admin-login', { pin });
+      const res = await fetch('/api/whatsapp/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'login', email, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Sign in failed');
       onSuccess();
     } catch (err: any) {
-      setError(err.message || 'Incorrect Nina PIN');
+      setError(err.message || 'Authentication failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setBusy(true);
+    try {
+      const res = await fetch('/api/whatsapp/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'register',
+          businessName,
+          ownerName,
+          email,
+          password,
+          phone,
+          category,
+          tagline,
+          themeColor,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Registration failed');
+      onSuccess();
+    } catch (err: any) {
+      setError(err.message || 'Registration failed');
     } finally {
       setBusy(false);
     }
@@ -3395,12 +3453,12 @@ function AdminLoginModal({
 
   return (
     <div style={ui.modalOverlay}>
-      <div style={{ ...ui.modalCard, maxWidth: 420 }}>
+      <div style={{ ...ui.modalCard, maxWidth: tab === 'register' ? 520 : 420 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: 24 }}>👑</span>
+            <span style={{ fontSize: 24 }}>🔐</span>
             <h3 style={{ margin: 0, color: '#f8fafc', fontSize: 17, fontWeight: 700 }}>
-              Nina Master Admin Access
+              {tab === 'signin' ? 'Sign In to Workspace' : 'Register New Business (Free)'}
             </h3>
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: 20, cursor: 'pointer' }}>
@@ -3408,9 +3466,43 @@ function AdminLoginModal({
           </button>
         </div>
 
-        <p style={{ color: '#94a3b8', fontSize: 13, marginBottom: 18, lineHeight: 1.5 }}>
-          Enter Nina Kurain master passcode to unlock client onboarding, Turso database monitors, and Instagram routing.
-        </p>
+        {/* Tab Switcher */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 18, background: 'rgba(255,255,255,0.04)', padding: 4, borderRadius: 8 }}>
+          <button
+            type="button"
+            onClick={() => { setTab('signin'); setError(''); }}
+            style={{
+              flex: 1,
+              padding: '8px 12px',
+              borderRadius: 6,
+              border: 'none',
+              background: tab === 'signin' ? 'rgba(115, 84, 218, 0.4)' : 'transparent',
+              color: tab === 'signin' ? '#ffffff' : '#94a3b8',
+              fontWeight: 700,
+              fontSize: 12,
+              cursor: 'pointer',
+            }}
+          >
+            Sign In
+          </button>
+          <button
+            type="button"
+            onClick={() => { setTab('register'); setError(''); }}
+            style={{
+              flex: 1,
+              padding: '8px 12px',
+              borderRadius: 6,
+              border: 'none',
+              background: tab === 'register' ? 'rgba(16, 185, 129, 0.3)' : 'transparent',
+              color: tab === 'register' ? '#ffffff' : '#94a3b8',
+              fontWeight: 700,
+              fontSize: 12,
+              cursor: 'pointer',
+            }}
+          >
+            Register Business (Free)
+          </button>
+        </div>
 
         {error && (
           <div style={{ background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.35)', color: '#fca5a5', padding: '10px 12px', borderRadius: 8, fontSize: 12, marginBottom: 14 }}>
@@ -3418,37 +3510,198 @@ function AdminLoginModal({
           </div>
         )}
 
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: '#cbd5e1', textTransform: 'uppercase', marginBottom: 6, display: 'block' }}>
-              Master Security PIN
-            </label>
-            <input
-              type="password"
-              autoFocus
-              placeholder="Enter PIN (e.g. 123456)"
-              value={pin}
-              onChange={(e) => setPin(e.target.value)}
-              style={ui.inputField}
-            />
-          </div>
+        {tab === 'signin' ? (
+          <form onSubmit={handleSignIn} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 700, color: '#cbd5e1', textTransform: 'uppercase', marginBottom: 6, display: 'block' }}>
+                Email Address
+              </label>
+              <input
+                type="email"
+                autoFocus
+                placeholder="name@business.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                style={ui.inputField}
+              />
+            </div>
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 8 }}>
-            <button type="button" onClick={onClose} style={ui.cancelBtn}>
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={busy || !pin}
-              style={{
-                ...ui.saveBtn,
-                background: 'linear-gradient(135deg, #7354da 0%, #5833b8 100%)',
-              }}
-            >
-              {busy ? 'Verifying...' : 'Unlock Admin Portal'}
-            </button>
-          </div>
-        </form>
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 700, color: '#cbd5e1', textTransform: 'uppercase', marginBottom: 6, display: 'block' }}>
+                Password
+              </label>
+              <input
+                type="password"
+                placeholder="Enter password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                style={ui.inputField}
+              />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 8 }}>
+              <button type="button" onClick={onClose} style={ui.cancelBtn}>
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={busy || !email || !password}
+                style={{
+                  ...ui.saveBtn,
+                  background: 'linear-gradient(135deg, #7354da 0%, #5833b8 100%)',
+                }}
+              >
+                {busy ? 'Authenticating...' : 'Sign In ➔'}
+              </button>
+            </div>
+          </form>
+        ) : (
+          <form onSubmit={handleRegister} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 700, color: '#cbd5e1', textTransform: 'uppercase', marginBottom: 4, display: 'block' }}>
+                  Business Name
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Aura Boutique"
+                  value={businessName}
+                  onChange={(e) => setBusinessName(e.target.value)}
+                  required
+                  style={ui.inputField}
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 700, color: '#cbd5e1', textTransform: 'uppercase', marginBottom: 4, display: 'block' }}>
+                  Owner Name
+                </label>
+                <input
+                  type="text"
+                  placeholder="Your Full Name"
+                  value={ownerName}
+                  onChange={(e) => setOwnerName(e.target.value)}
+                  required
+                  style={ui.inputField}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 700, color: '#cbd5e1', textTransform: 'uppercase', marginBottom: 4, display: 'block' }}>
+                  Email (Login)
+                </label>
+                <input
+                  type="email"
+                  placeholder="owner@boutique.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  style={ui.inputField}
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 700, color: '#cbd5e1', textTransform: 'uppercase', marginBottom: 4, display: 'block' }}>
+                  Password (min 8 chars)
+                </label>
+                <input
+                  type="password"
+                  placeholder="Create password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  minLength={8}
+                  style={ui.inputField}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 700, color: '#cbd5e1', textTransform: 'uppercase', marginBottom: 4, display: 'block' }}>
+                  WhatsApp Phone
+                </label>
+                <input
+                  type="text"
+                  placeholder="+91 99000 00000"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  style={ui.inputField}
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 700, color: '#cbd5e1', textTransform: 'uppercase', marginBottom: 4, display: 'block' }}>
+                  Category
+                </label>
+                <input
+                  type="text"
+                  placeholder="Retail, Clinic, Fashion..."
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  style={ui.inputField}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 700, color: '#cbd5e1', textTransform: 'uppercase', marginBottom: 4, display: 'block' }}>
+                Tagline / Brand Bio
+              </label>
+              <input
+                type="text"
+                placeholder="Excellence in customer care"
+                value={tagline}
+                onChange={(e) => setTagline(e.target.value)}
+                style={ui.inputField}
+              />
+            </div>
+
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 700, color: '#cbd5e1', textTransform: 'uppercase', marginBottom: 4, display: 'block' }}>
+                Brand Accent Color
+              </label>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                {['#10b981', '#7354da', '#f59e0b', '#3b82f6', '#ec4899', '#06b6d4'].map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => setThemeColor(c)}
+                    style={{
+                      width: 28,
+                      height: 28,
+                      borderRadius: '50%',
+                      background: c,
+                      border: themeColor === c ? '2px solid #ffffff' : '2px solid transparent',
+                      cursor: 'pointer',
+                      boxShadow: themeColor === c ? `0 0 10px ${c}` : 'none',
+                    }}
+                  />
+                ))}
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 8 }}>
+              <button type="button" onClick={onClose} style={ui.cancelBtn}>
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={busy || !businessName || !email || password.length < 8}
+                style={{
+                  ...ui.saveBtn,
+                  background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                }}
+              >
+                {busy ? 'Creating Workspace...' : 'Register Workspace (Free) 🚀'}
+              </button>
+            </div>
+          </form>
+        )}
       </div>
     </div>
   );

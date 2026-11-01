@@ -52,10 +52,17 @@ class WhatsAppClient extends EventEmitter {
   private isConnecting = false;
   private reconnectTimer: NodeJS.Timeout | null = null;
 
-  constructor() {
+  public readonly tenantId: string;
+
+  constructor(tenantId: string = 'biz_titan_watches') {
     super();
-    // Store auth state in the whatsapp folder
-    this.authDir = join(process.cwd(), '.wa-auth');
+    this.tenantId = tenantId;
+    // Store auth state per tenant to guarantee complete connection & device isolation
+    if (tenantId === 'biz_titan_watches') {
+      this.authDir = join(process.cwd(), '.wa-auth');
+    } else {
+      this.authDir = join(process.cwd(), '.wa-auth', tenantId);
+    }
   }
 
   getState(): ConnectionState {
@@ -293,7 +300,7 @@ class WhatsAppClient extends EventEmitter {
           // Pass to handler
           try {
             if (this.messageHandler) {
-              await this.messageHandler(event);
+              await this.messageHandler({ ...event, tenantId: this.tenantId });
             } else {
               const { handleIncomingMessage } = await import('./message-handler');
               await handleIncomingMessage(event);
@@ -406,17 +413,22 @@ class WhatsAppClient extends EventEmitter {
   }
 }
 
-// ── Singleton Instance (stored on globalThis for Next.js) ───────────────
+// ── Multi-Tenant Client Manager (stored on globalThis for Next.js) ──────
 
 const globalForWA = globalThis as unknown as {
-  __waClient?: WhatsAppClient;
+  __waClients?: Map<string, WhatsAppClient>;
 };
 
-export function getWhatsAppClient(): WhatsAppClient {
-  if (!globalForWA.__waClient) {
-    globalForWA.__waClient = new WhatsAppClient();
+export function getWhatsAppClient(tenantId: string = 'biz_titan_watches'): WhatsAppClient {
+  if (!globalForWA.__waClients) {
+    globalForWA.__waClients = new Map<string, WhatsAppClient>();
   }
-  return globalForWA.__waClient;
+  let client = globalForWA.__waClients.get(tenantId);
+  if (!client) {
+    client = new WhatsAppClient(tenantId);
+    globalForWA.__waClients.set(tenantId, client);
+  }
+  return client;
 }
 
 export { WhatsAppClient };

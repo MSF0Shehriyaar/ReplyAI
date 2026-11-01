@@ -494,7 +494,8 @@ export type RegisteredBusiness = {
   deviceStatus: 'connected' | 'disconnected' | 'pairing';
   threadCount?: number;
   orderCount?: number;
-  status: 'active' | 'free' | 'vip';
+  status: 'active' | 'suspended' | 'free' | 'vip';
+  ownerEmail?: string;
 };
 
 export type WAWorkspace = {

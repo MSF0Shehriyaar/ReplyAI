@@ -23,6 +23,7 @@ type Job = {
   payload: string;
   attempts: number;
   created: number;
+  tenant_id?: string;
 };
 
 // ── Auto-Reply Rule Matching ────────────────────────────────────────────
@@ -116,10 +117,19 @@ async function checkEscalation(thread: WAThread, s: WASettings): Promise<boolean
 
 // ── Queue Status ────────────────────────────────────────────────────────
 
-export async function queueStatus() {
-  const queryResult = await db()
-    .prepare('SELECT status, COUNT(*) count FROM wa_jobs GROUP BY status')
-    .all();
+export async function queueStatus(tenantId?: string) {
+  const d = db();
+  let queryResult;
+  if (tenantId) {
+    queryResult = await d
+      .prepare('SELECT status, COUNT(*) count FROM wa_jobs WHERE tenant_id = ? GROUP BY status')
+      .bind(tenantId)
+      .all();
+  } else {
+    queryResult = await d
+      .prepare('SELECT status, COUNT(*) count FROM wa_jobs GROUP BY status')
+      .all();
+  }
   const rows = (queryResult?.results || []) as { status: string; count: number }[];
   const counts = Object.fromEntries(rows.map((r) => [r.status, Number(r.count)]));
   return {
@@ -132,15 +142,30 @@ export async function queueStatus() {
 
 // ── Process Jobs (Batched per Thread for Clean Bulk Replies) ─────────────
 
-export async function processThreadJobs(threadId: string): Promise<{ processed: number }> {
-  const s = await settings();
+export async function processThreadJobs(threadId: string, tenantId: string = 'biz_titan_watches'): Promise<{ processed: number }> {
+  // Guard: Suspended business tenants cannot process background jobs
+  const tenantRow = await db()
+    .prepare('SELECT status FROM business_tenants WHERE id = ?')
+    .bind(tenantId)
+    .first<{ status: string }>();
+
+  if (tenantRow && tenantRow.status === 'suspended') {
+    console.warn(`[WA Queue] Aborting jobs: business tenant ${tenantId} is suspended.`);
+    await db()
+      .prepare("UPDATE wa_jobs SET status='failed' WHERE thread_id=? AND tenant_id=? AND status='pending'")
+      .bind(threadId, tenantId)
+      .run();
+    return { processed: 0 };
+  }
+
+  const s = await settings(tenantId);
 
   const queryResult = await db()
     .prepare(
-      `SELECT * FROM wa_jobs WHERE thread_id=? AND status='pending' AND attempts<? AND created<=?
+      `SELECT * FROM wa_jobs WHERE thread_id=? AND tenant_id=? AND status='pending' AND attempts<? AND created<=?
        ORDER BY created ASC`
     )
-    .bind(threadId, s.maxRetries ?? 3, Date.now())
+    .bind(threadId, tenantId, s.maxRetries ?? 3, Date.now())
     .all();
   const jobs = (queryResult?.results || []) as Job[];
 
@@ -155,12 +180,12 @@ export async function processThreadJobs(threadId: string): Promise<{ processed: 
   }
 
   try {
-    let thread = await getThread(threadId);
+    let thread = await getThread(threadId, tenantId);
     const isFirstMessage = !thread;
     const firstEvent = JSON.parse(jobs[0].payload);
 
     if (!thread) {
-      const customer = await getOrCreateCustomer(firstEvent.senderPhone, firstEvent.senderName);
+      const customer = await getOrCreateCustomer(firstEvent.senderPhone, firstEvent.senderName, tenantId);
       thread = {
         id: threadId,
         name: firstEvent.senderName || firstEvent.senderPhone,
@@ -228,7 +253,7 @@ export async function processThreadJobs(threadId: string): Promise<{ processed: 
     }
 
     // Update customer profile
-    const customer = await getOrCreateCustomer(thread.phone, thread.name);
+    const customer = await getOrCreateCustomer(thread.phone, thread.name, tenantId);
     customer.name = thread.name;
     customer.lastContact = Date.now();
     customer.totalMessages += jobs.length;
@@ -267,7 +292,7 @@ export async function processThreadJobs(threadId: string): Promise<{ processed: 
     }
 
     // Check if order is confirmed from composite incoming messages
-    await syncOrderIfConfirmed(thread, compositeText, null, s, customer);
+    await syncOrderIfConfirmed(thread, compositeText, null, s, customer, tenantId);
 
     // Sentiment analysis
     if (s.sentimentAnalysisEnabled && compositeText) {
@@ -281,12 +306,12 @@ export async function processThreadJobs(threadId: string): Promise<{ processed: 
         thread.flagged = flag;
         thread.status = 'escalated';
         thread.priority = 'urgent';
-        await saveThread(thread);
-        await saveCustomerProfile(customer);
+        await saveThread(thread, tenantId);
+        await saveCustomerProfile(customer, tenantId);
         for (const j of jobs) {
           await db().prepare("UPDATE wa_jobs SET status='done' WHERE id=?").bind(j.id).run();
         }
-        await audit('Flagged', `${flag} — ${thread.name}`);
+        await audit('Flagged', `${flag} — ${thread.name}`, tenantId);
         return { processed: jobs.length };
       }
     }
@@ -294,8 +319,8 @@ export async function processThreadJobs(threadId: string): Promise<{ processed: 
     // Check escalation rules
     const escalated = await checkEscalation(thread, s);
     if (escalated) {
-      await saveThread(thread);
-      await saveCustomerProfile(customer);
+      await saveThread(thread, tenantId);
+      await saveCustomerProfile(customer, tenantId);
       for (const j of jobs) {
         await db().prepare("UPDATE wa_jobs SET status='done' WHERE id=?").bind(j.id).run();
       }
@@ -319,7 +344,7 @@ export async function processThreadJobs(threadId: string): Promise<{ processed: 
         (autoReply.triggerType === 'time' ? s.awayMessage : '');
 
       if (replyText && !s.approval) {
-        await sendReply(thread, replyText);
+        await sendReply(thread, replyText, tenantId);
         for (const j of jobs) {
           await db().prepare("UPDATE wa_jobs SET status='done' WHERE id=?").bind(j.id).run();
         }
@@ -327,8 +352,8 @@ export async function processThreadJobs(threadId: string): Promise<{ processed: 
       } else if (replyText) {
         thread.draft = replyText;
         thread.status = 'review';
-        await saveThread(thread);
-        await saveCustomerProfile(customer);
+        await saveThread(thread, tenantId);
+        await saveCustomerProfile(customer, tenantId);
         for (const j of jobs) {
           await db().prepare("UPDATE wa_jobs SET status='done' WHERE id=?").bind(j.id).run();
         }
@@ -338,8 +363,8 @@ export async function processThreadJobs(threadId: string): Promise<{ processed: 
 
     // Skip AI if takeover mode
     if (thread.takeover || !thread.ai || !s.enabled) {
-      await saveThread(thread);
-      await saveCustomerProfile(customer);
+      await saveThread(thread, tenantId);
+      await saveCustomerProfile(customer, tenantId);
       for (const j of jobs) {
         await db().prepare("UPDATE wa_jobs SET status='done' WHERE id=?").bind(j.id).run();
       }
@@ -347,9 +372,9 @@ export async function processThreadJobs(threadId: string): Promise<{ processed: 
     }
 
     // Generate SINGLE cohesive AI reply for the combined incoming messages
-    console.log(`[WA] 🤖 Generating bulk AI reply for ${thread.name} (${thread.phone}) [${jobs.length} message(s)]...`);
+    console.log(`[WA] 🤖 Generating bulk AI reply for ${thread.name} (${thread.phone}) [${tenantId}]...`);
     const startTime = Date.now();
-    const draft = await generateReply(thread);
+    const draft = await generateReply(thread, tenantId);
     thread.responseTimeMs = Date.now() - startTime;
     console.log(`[WA] 💡 AI response generated in ${thread.responseTimeMs}ms: "${draft.slice(0, 60)}..."`);
 
@@ -358,7 +383,7 @@ export async function processThreadJobs(threadId: string): Promise<{ processed: 
         console.log(`[WA] 📝 Approval mode is ON: saved as review draft for ${thread.name}`);
         thread.draft = draft;
         thread.status = 'review';
-        await saveThread(thread);
+        await saveThread(thread, tenantId);
       } else {
         const delay = thread.channel === 'group' ? s.groupReplyDelaySeconds : s.personalReplyDelaySeconds;
         if (delay > 0) {
@@ -366,16 +391,16 @@ export async function processThreadJobs(threadId: string): Promise<{ processed: 
           await new Promise((r) => setTimeout(r, delay * 1000));
         }
         console.log(`[WA] 🚀 Auto-sending single consolidated reply to ${thread.name}...`);
-        await sendReply(thread, draft);
+        await sendReply(thread, draft, tenantId);
       }
 
       // Auto-sync order if confirmed in reply or draft
-      await syncOrderIfConfirmed(thread, compositeText, draft, s, customer);
+      await syncOrderIfConfirmed(thread, compositeText, draft, s, customer, tenantId);
     } else {
-      await saveThread(thread);
+      await saveThread(thread, tenantId);
     }
 
-    await saveCustomerProfile(customer);
+    await saveCustomerProfile(customer, tenantId);
     for (const j of jobs) {
       await db().prepare("UPDATE wa_jobs SET status='done' WHERE id=?").bind(j.id).run();
     }
@@ -389,31 +414,42 @@ export async function processThreadJobs(threadId: string): Promise<{ processed: 
   }
 }
 
-export async function processNextJob(): Promise<{ processed: number }> {
-  const s = await settings();
+export async function processNextJob(tenantId?: string): Promise<{ processed: number }> {
+  const d = db();
+  const s = await settings(tenantId || 'biz_titan_watches');
 
   // Recover stale processing jobs
   const cutoff = Date.now() - 120000;
-  await db()
+  await d
     .prepare(
       "UPDATE wa_jobs SET status='pending',attempts=0,created=? WHERE status='processing' AND created<?"
     )
     .bind(Date.now(), cutoff)
     .run();
 
-  const queryResult = await db()
-    .prepare(
-      `SELECT DISTINCT thread_id FROM wa_jobs WHERE status='pending' AND attempts<? AND created<=? LIMIT 5`
-    )
-    .bind(s.maxRetries ?? 3, Date.now())
-    .all();
-  const threadRows = (queryResult?.results || []) as { thread_id: string }[];
+  let queryResult;
+  if (tenantId) {
+    queryResult = await d
+      .prepare(
+        `SELECT DISTINCT thread_id, tenant_id FROM wa_jobs WHERE status='pending' AND attempts<? AND created<=? AND tenant_id=? LIMIT 5`
+      )
+      .bind(s.maxRetries ?? 3, Date.now(), tenantId)
+      .all();
+  } else {
+    queryResult = await d
+      .prepare(
+        `SELECT DISTINCT thread_id, tenant_id FROM wa_jobs WHERE status='pending' AND attempts<? AND created<=? LIMIT 5`
+      )
+      .bind(s.maxRetries ?? 3, Date.now())
+      .all();
+  }
+  const threadRows = (queryResult?.results || []) as { thread_id: string; tenant_id?: string }[];
 
   if (!threadRows.length) return { processed: 0 };
 
   let processed = 0;
   for (const row of threadRows) {
-    const res = await processThreadJobs(row.thread_id);
+    const res = await processThreadJobs(row.thread_id, row.tenant_id || tenantId || 'biz_titan_watches');
     processed += res.processed;
   }
 
@@ -426,7 +462,8 @@ async function syncOrderIfConfirmed(
   eventText: string,
   draft: string | null,
   s: WASettings,
-  customer: CustomerProfile
+  customer: CustomerProfile,
+  tenantId: string = 'biz_titan_watches'
 ) {
   try {
     const loc = thread.deliveryLocation;
@@ -498,8 +535,8 @@ async function syncOrderIfConfirmed(
       fullChatText.includes('online') ||
       fullChatText.includes('prepaid');
 
-    const { allOrders, saveOrder, reconcileOrdersWithThreads } = await import('./server');
-    const existingOrders = await allOrders();
+    const { allOrders, saveOrder } = await import('./server');
+    const existingOrders = await allOrders(tenantId);
     const targetProductId = targetOrderData.productId || 'titan-watch';
 
     const currentCustName = targetOrderData.customerName !== 'Customer' ? targetOrderData.customerName : (thread.name || customer.name || 'Customer');
@@ -541,7 +578,7 @@ async function syncOrderIfConfirmed(
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
-      await saveOrder(newOrder);
+      await saveOrder(newOrder, tenantId);
       console.log(`[WA] 📦 New order confirmed and saved: ${newOrder.id} for ${newOrder.customerName} (${newOrder.productName} - ₹${newOrder.amount})`);
     } else {
       order.customerName = currentCustName;
@@ -556,7 +593,7 @@ async function syncOrderIfConfirmed(
       order.amount = targetOrderData.amount;
       order.orderStatus = targetOrderStatus;
       order.updatedAt = Date.now();
-      await saveOrder(order);
+      await saveOrder(order, tenantId);
       console.log(`[WA] 📦 Order updated in wa_orders: ${order.id} for ${order.customerName} (${order.productName} - ₹${order.amount})`);
     }
 

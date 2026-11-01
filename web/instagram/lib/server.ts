@@ -35,44 +35,14 @@ export function errorResponse(e:unknown){
 // dispatch consumes without forwarding a signed-in user's identity headers.
 // Keep this Site private; user-specific records would need identity checks.
 export async function requireWorkspaceRequest(request?:Request){
-  if(request&&request.method!=='GET'){
-    if(request.headers.get('x-nina-client')!=='1')throw new AppError('Invalid request.',403);
-    const origin=request.headers.get('origin');
-    if(origin){
-      let isValidOrigin = false;
-      try {
-        const originUrl = new URL(origin);
-        const originHost = originUrl.host;
-        const reqOrigin = new URL(request.url).origin;
-        const fwdHost = request.headers.get('x-forwarded-host') || request.headers.get('host');
-        
-        if (
-          origin === reqOrigin ||
-          (fwdHost && (originHost === fwdHost || origin === `https://${fwdHost}` || origin === `http://${fwdHost}`)) ||
-          originHost.endsWith('ninakurainservices.in') ||
-          originHost.endsWith('onrender.com') ||
-          originHost === 'localhost' ||
-          originHost.startsWith('localhost:')
-        ) {
-          isValidOrigin = true;
-        }
-      } catch {
-        isValidOrigin = false;
-      }
-      if(!isValidOrigin) throw new AppError('Invalid request origin.',403);
-    }
-  }
-  // Enforce owner session verification for sensitive workspace requests
-  if(request){
-    const cookieHeader = request.headers.get('cookie') || '';
-    const deviceHeader = request.headers.get('x-nina-device');
-    const isOwnerSession = cookieHeader.includes('nina_owner_session=');
-    const hasDevice = !!deviceHeader;
-    // If an owner account has registered, require authenticated session or device
-    const creds = await readState<any>('owner_credentials', null);
-    if(creds?.hasSignedUp && !isOwnerSession && !hasDevice){
-      throw new AppError('Owner authentication required. Please sign in.', 401);
-    }
+  const h = request?.headers ?? await (await import('next/headers')).headers();
+  const device = h.get('x-nina-device');
+  if (device) { await (await import('./mobile-access')).validateDevice(device); return; }
+  const token = h.get('cookie')?.split(';').map(v=>v.trim()).find(v=>v.startsWith('nina_owner_session='))?.slice('nina_owner_session='.length);
+  if (!await (await import('./owner-session')).validOwnerSession(token)) throw new AppError('Owner authentication required.',401);
+  if(request && !['GET','HEAD'].includes(request.method)) {
+    const expected = process.env.NEXT_PUBLIC_APP_URL;
+    if (!expected || request.headers.get('origin') !== new URL(expected).origin) throw new AppError('Invalid request origin.',403);
   }
 }
 

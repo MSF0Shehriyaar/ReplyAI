@@ -217,26 +217,6 @@ export default function WhatsAppCommandCenter() {
             <span>🛍️ Visual Catalog Boutique ↗</span>
           </a>
 
-          <a
-            href="/"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              background: 'rgba(115, 84, 218, 0.15)',
-              border: '1px solid rgba(115, 84, 218, 0.4)',
-              color: '#c4b5fd',
-              padding: '6px 14px',
-              borderRadius: 8,
-              fontSize: 12,
-              fontWeight: 600,
-              textDecoration: 'none',
-              transition: 'all 0.15s ease',
-            }}
-            title="Go to Instagram Control Room"
-          >
-            <span>📸 Instagram Control Room</span>
-          </a>
 
           <div
             onClick={() => setActiveTab('connect')}

@@ -16,6 +16,19 @@ export async function handleIncomingMessage(event: any) {
   try {
     await initDatabase();
 
+    const tenantId = event.tenantId || 'biz_titan_watches';
+
+    // Verify tenant status: if suspended, drop automated processing
+    const tenantRow = await db()
+      .prepare('SELECT status FROM business_tenants WHERE id = ?')
+      .bind(tenantId)
+      .first<{ status: string }>();
+
+    if (tenantRow && tenantRow.status === 'suspended') {
+      console.warn(`[WA] Incoming message dropped: business tenant ${tenantId} is suspended.`);
+      return;
+    }
+
     const jobId = `wa:${event.id}`;
     const threadId = event.isGroup ? `wa:group:${event.groupId}` : `wa:${event.senderPhone}`;
 
@@ -29,47 +42,47 @@ export async function handleIncomingMessage(event: any) {
       mediaType: event.mediaType,
       at: event.timestamp,
       jid: event.jid,
+      tenantId,
     };
 
-    console.log(`[WA] Enqueueing incoming job ${jobId} from ${event.senderName} (${event.senderPhone}): "${event.text?.slice(0, 50)}"`);
+    console.log(`[WA] Enqueueing incoming job ${jobId} for [${tenantId}] from ${event.senderName} (${event.senderPhone}): "${event.text?.slice(0, 50)}"`);
 
     await db()
       .prepare(
-        "INSERT OR IGNORE INTO wa_jobs (id,thread_id,payload,status,attempts,created) VALUES (?,?,?,'pending',0,?)"
+        "INSERT OR IGNORE INTO wa_jobs (id,thread_id,payload,status,attempts,created,tenant_id) VALUES (?,?,?,'pending',0,?,?)"
       )
-      .bind(jobId, threadId, JSON.stringify(jobPayload), Date.now())
+      .bind(jobId, threadId, JSON.stringify(jobPayload), Date.now(), tenantId)
       .run();
 
     // Update customer profile
-    const customer = await getOrCreateCustomer(event.senderPhone, event.senderName);
+    const customer = await getOrCreateCustomer(event.senderPhone, event.senderName, tenantId);
     customer.totalMessages++;
     customer.lastContact = Date.now();
-    await saveCustomerProfile(customer);
+    await saveCustomerProfile(customer, tenantId);
 
     // Update connection last event
     const c = await readState<any>('wa_connection', {});
     c.lastEvent = Date.now();
     await writeState('wa_connection', c);
 
-    // Debounce processing for this thread (2000ms pause):
-    // If the customer sends multiple rapid messages (e.g. "The most basic one" then "Please"),
-    // wait for them to finish typing so all thoughts are answered in ONE single cohesive bulk response!
-    const existingTimer = threadDebounceTimers.get(threadId);
+    // Debounce processing for this thread (2000ms pause)
+    const debounceKey = `${tenantId}:${threadId}`;
+    const existingTimer = threadDebounceTimers.get(debounceKey);
     if (existingTimer) {
       clearTimeout(existingTimer);
     }
 
     const timer = setTimeout(async () => {
-      threadDebounceTimers.delete(threadId);
+      threadDebounceTimers.delete(debounceKey);
       try {
-        console.log(`[WA] ⏱️ Debounce finished for ${threadId}. Processing all pending jobs in bulk...`);
-        await processThreadJobs(threadId);
+        console.log(`[WA] ⏱️ Debounce finished for ${threadId} [${tenantId}]. Processing pending jobs...`);
+        await processThreadJobs(threadId, tenantId);
       } catch (err) {
         console.error(`[WA] Error processing bulk jobs for thread ${threadId}:`, err);
       }
     }, 2000);
 
-    threadDebounceTimers.set(threadId, timer);
+    threadDebounceTimers.set(debounceKey, timer);
   } catch (e) {
     console.error('[WA] handleIncomingMessage error:', e);
   }

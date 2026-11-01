@@ -1,4 +1,4 @@
-// ─── WhatsApp Webhook — Receives WhatsApp Cloud API events ─────────────
+// ─── WhatsApp Webhook — Multi-Tenant Cloud API Events ────────────────────
 import { NextRequest, NextResponse } from 'next/server';
 import {
   db,
@@ -48,44 +48,41 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST — Receive WhatsApp Messages
+// POST — Receive WhatsApp Messages with Signature & Tenant Resolution
 export async function POST(request: NextRequest) {
   try {
     await initDatabase();
 
     const raw = await request.text();
-    if (raw.length > 500000) throw new AppError('Event too large.', 413);
+    if (raw.length > 500000) throw new AppError('Event payload exceeds size limit.', 413);
 
-    // Verify webhook signature
+    // 1. Mandatory Webhook Signature Validation
     const signature = request.headers.get('x-hub-signature-256');
     const appSecret = await secret('wa_app_secret');
-    if (appSecret && signature) {
-      const key = await crypto.subtle.importKey(
-        'raw',
-        new TextEncoder().encode(appSecret),
-        { name: 'HMAC', hash: 'SHA-256' },
-        false,
-        ['sign']
-      );
-      const digest = new Uint8Array(
-        await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(raw))
-      );
-      const expected =
-        'sha256=' + Array.from(digest, (b) => b.toString(16).padStart(2, '0')).join('');
-      if (expected !== signature) {
-        throw new AppError('Invalid webhook signature.', 403);
-      }
+    if (!appSecret || !signature) throw new AppError('Webhook signature required.', 403);
+
+    const enc = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+      'raw',
+      enc.encode(appSecret),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign']
+    );
+    const digest = new Uint8Array(await crypto.subtle.sign('HMAC', key, enc.encode(raw)));
+    const expected = 'sha256=' + Array.from(digest, (b) => b.toString(16).padStart(2, '0')).join('');
+    if (expected !== signature) {
+      throw new AppError('Invalid webhook signature.', 403);
     }
 
     const payload = JSON.parse(raw);
-
-    // WhatsApp Cloud API sends events under "entry"
     if (payload.object !== 'whatsapp_business_account') {
       return NextResponse.json({ accepted: 0 });
     }
 
     let count = 0;
-    const s = await settings();
+    const d = db();
+    const touchedTenants = new Set<string>();
 
     for (const entry of payload.entry || []) {
       for (const change of entry.changes || []) {
@@ -93,9 +90,53 @@ export async function POST(request: NextRequest) {
         const value = change.value;
         if (!value) continue;
 
-        // Process incoming messages
+        // 2. Resolve Tenant from Verified Metadata (phone_number_id)
+        const phoneNumberId = value.metadata?.phone_number_id;
+        let tenantId = 'biz_titan_watches';
+
+        if (phoneNumberId) {
+          const conn = await d
+            .prepare('SELECT tenant_id FROM tenant_connections WHERE phone_number_id = ?')
+            .bind(phoneNumberId)
+            .first<{ tenant_id: string }>();
+          if (conn?.tenant_id) {
+            tenantId = conn.tenant_id;
+          }
+        }
+
+        // 3. Verify Tenant is not suspended
+        const tenantRow = await d
+          .prepare('SELECT status, name FROM business_tenants WHERE id = ?')
+          .bind(tenantId)
+          .first<{ status: string; name: string }>();
+
+        if (tenantRow && tenantRow.status === 'suspended') {
+          await audit('Webhook dropped', `Dropped event for suspended tenant: ${tenantRow.name}`, tenantId);
+          continue;
+        }
+
+        touchedTenants.add(tenantId);
+
+        // 4. Process incoming messages with idempotency
         for (const msg of value.messages || []) {
           if (!msg.from || !msg.id) continue;
+
+          // Idempotency check: prevent processing same message twice
+          const msgHash = `wa_msg_${msg.id}`;
+          const existingEvent = await d
+            .prepare('SELECT id FROM webhook_idempotency WHERE id = ?')
+            .bind(msgHash)
+            .first<{ id: string }>();
+
+          if (existingEvent) {
+            console.log(`[WA Webhook] Duplicate message skipped: ${msg.id}`);
+            continue;
+          }
+
+          await d
+            .prepare('INSERT INTO webhook_idempotency (id, tenant_id, received_at) VALUES (?, ?, ?)')
+            .bind(msgHash, tenantId, Date.now())
+            .run();
 
           // Determine message text
           let text = '';
@@ -124,12 +165,11 @@ export async function POST(request: NextRequest) {
             mediaType = 'contact';
             text = '[Contact Shared]';
           } else if (msg.type === 'reaction') {
-            continue; // Skip reactions
+            continue;
           } else if (msg.type === 'interactive') {
             text = msg.interactive?.button_reply?.title || msg.interactive?.list_reply?.title || '';
           }
 
-          // Get sender name from contacts
           const senderName =
             value.contacts?.find((c: any) => c.wa_id === msg.from)?.profile?.name || msg.from;
 
@@ -142,46 +182,39 @@ export async function POST(request: NextRequest) {
             text: text.slice(0, 2000),
             mediaType,
             at: msg.timestamp ? parseInt(msg.timestamp) * 1000 : Date.now(),
+            tenantId,
           };
 
-          const r = await db()
+          const r = await d
             .prepare(
-              "INSERT OR IGNORE INTO wa_jobs (id,thread_id,payload,status,attempts,created) VALUES (?,?,?,'pending',0,?)"
+              "INSERT OR IGNORE INTO wa_jobs (id,thread_id,payload,status,attempts,created,tenant_id) VALUES (?,?,?,'pending',0,?,?)"
             )
-            .bind(event.id, event.threadId, JSON.stringify(event), Date.now())
+            .bind(event.id, event.threadId, JSON.stringify(event), Date.now(), tenantId)
             .run();
           count += r.meta.changes ?? 0;
         }
 
-        // Track status updates
+        // Track delivery status updates
         for (const status of value.statuses || []) {
-          // Log delivery status changes (sent, delivered, read, failed)
           if (status.status === 'failed') {
             await audit(
               'Delivery failed',
-              `Message to ${status.recipient_id}: ${status.errors?.[0]?.message || 'Unknown error'}`
+              `Message to ${status.recipient_id}: ${status.errors?.[0]?.message || 'Unknown error'}`,
+              tenantId
             );
           }
         }
       }
     }
 
-    // Update last event
+    // Auto-process queue for touched tenants
     if (count > 0) {
-      const c = await readState<any>('wa_connection', {});
-      c.lastEvent = Date.now();
-      await writeState('wa_connection', c);
-
-      // Auto-process jobs
-      try {
-        let p = 0;
-        while (p < 10) {
-          const res = await processNextJob();
-          if (!res.processed) break;
-          p += res.processed;
+      for (const tId of touchedTenants) {
+        try {
+          await processNextJob(tId);
+        } catch (e) {
+          console.warn(`[WA Webhook] Queue process notice for ${tId}:`, e);
         }
-      } catch (e) {
-        console.warn('Auto drain error:', e);
       }
     }
 
