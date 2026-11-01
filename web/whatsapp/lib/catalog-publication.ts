@@ -1,7 +1,7 @@
 import {db,settings,AppError,audit} from './server';
 import {missingBusinessProfile} from './business-profile';
 import type {CatalogPublication} from './model';
-export const validCatalogSlug=(slug:string)=>/^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$/.test(slug)&&!['admin','api','login','register','catalog','business','whatsapp'].includes(slug);
+export const validCatalogSlug=(slug:string)=>/^[a-z0-9][-a-z0-9]{1,62}[a-z0-9]$/.test(slug)&&!['admin','api','login','register','catalog','business','whatsapp'].includes(slug);
 export function catalogUrl(slug:string){const origin=(process.env.NEXT_PUBLIC_APP_URL||(process.env.NODE_ENV==='production'?'https://automation.ninakurainservices.in':'http://localhost:3000')).replace(/\/+$/,'');return origin+'/business/catalog/'+encodeURIComponent(slug);}
 export async function catalogPublication(tenantId:string):Promise<CatalogPublication>{
   const row=await db().prepare('SELECT slug,published FROM catalog_publications WHERE tenant_id=?').bind(tenantId).first<{slug:string;published:number}>();

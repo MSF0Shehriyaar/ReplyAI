@@ -111,7 +111,7 @@ export default function PublicationSettings({
               value={slug}
               maxLength={64}
               placeholder="e.g. titan-watches"
-              pattern="[a-z0-9][a-z0-9-]{1,62}[a-z0-9]"
+              pattern="[a-z0-9][-a-z0-9]{1,62}[a-z0-9]"
               onChange={event => setSlug(event.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
               style={styles.slugInput}
             />
