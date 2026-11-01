@@ -9,6 +9,6 @@ export const deliveryAddressSchema=z.object({
   type:z.enum(['home','work','other']),instructions:z.string().trim().max(500).optional(),
   coordinates:z.object({lat:z.number().finite().min(-90).max(90),lng:z.number().finite().min(-180).max(180),accuracy:z.number().finite().positive().max(100000)}).strict().optional(),
 }).strict();
-export const catalogCheckoutSchema=z.object({slug:z.string().min(3).max(64),requestKey:z.string().uuid(),items:z.array(z.object({productId:z.string().min(1).max(160),quantity:z.number().int().min(1).max(20)}).strict()).min(1).max(50),address:deliveryAddressSchema,consent:z.literal(true)}).strict();
+export const catalogCheckoutSchema=z.object({slug:z.string().min(3).max(64),requestKey:z.string().uuid(),items:z.array(z.object({productId:z.string().min(1).max(160),quantity:z.number().int().min(1).max(500)}).strict()).min(1).max(100),address:deliveryAddressSchema,consent:z.literal(true)}).strict();
 export type CatalogCheckoutInput=z.infer<typeof catalogCheckoutSchema>;
 export function formatDeliveryAddress(address:DeliveryAddress){return [address.line1,address.line2,address.locality,address.landmark,address.city,address.state,address.pincode,address.country].filter(Boolean).join(', ');}
