@@ -39,7 +39,7 @@ async function loadWorkspace(): Promise<WAWorkspace> {
   return res.json();
 }
 
-export function getGoogleMapsSearchUrl(loc?: DeliveryLocation | null): string {
+function getGoogleMapsSearchUrl(loc?: DeliveryLocation | null): string {
   if (!loc) return '#';
   if (loc.raw?.includes('1302') && loc.raw?.toLowerCase().includes('sathgalli')) {
     return 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent('1302, Sathgalli Layout, Dr Rajkumar Road, Mysuru, Karnataka 570019');
@@ -55,7 +55,7 @@ export function getGoogleMapsSearchUrl(loc?: DeliveryLocation | null): string {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query || loc.formattedAddress || loc.raw || '')}`;
 }
 
-export function getGoogleMapsDirectionsUrl(loc?: DeliveryLocation | null): string {
+function getGoogleMapsDirectionsUrl(loc?: DeliveryLocation | null): string {
   if (!loc) return '#';
   if (loc.raw?.includes('1302') && loc.raw?.toLowerCase().includes('sathgalli')) {
     return 'https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent('1302, Sathgalli Layout, Dr Rajkumar Road, Mysuru, Karnataka 570019');
@@ -179,7 +179,7 @@ export default function WhatsAppCommandCenter() {
       <header style={ui.header}>
         <div style={ui.headerLeft}>
           <div style={ui.brandGroup}>
-            <div style={ui.brandIcon}>⏱️</div>
+            <div style={ui.brandIcon}></div>
             <div>
               <div style={ui.brandTitleRow}>
                 <span style={ui.brandTitle}>{currentSettings.businessName}</span>
@@ -214,7 +214,7 @@ export default function WhatsAppCommandCenter() {
             }}
             title="Open Interactive Visual Boutique Catalog"
           >
-            <span>🛍️ Visual Catalog Boutique ↗</span>
+            <span> Visual Catalog Boutique </span>
           </a>
 
 
@@ -262,13 +262,13 @@ export default function WhatsAppCommandCenter() {
       {/* Navigation Tabs */}
       <nav style={ui.nav}>
         {[
-          { id: 'inbox', label: 'Live Inbox', icon: '💬' },
-          { id: 'orders', label: 'Orders & Live Map', icon: '📍' },
-          { id: 'catalog', label: 'Watches & Catalog', icon: '🛍️' },
-          { id: 'business', label: 'Store Profile', icon: '🏢' },
-          { id: 'brain', label: 'AI Behavior & Tone', icon: '🧠' },
-          { id: 'analytics', label: 'Analytics & Leads', icon: '📊' },
-          { id: 'connect', label: 'WhatsApp Device', icon: '📱' },
+          { id: 'inbox', label: 'Live Inbox', icon: '' },
+          { id: 'orders', label: 'Orders & Live Map', icon: '' },
+          { id: 'catalog', label: 'Watches & Catalog', icon: '' },
+          { id: 'business', label: 'Store Profile', icon: '' },
+          { id: 'brain', label: 'AI Behavior & Tone', icon: '' },
+          { id: 'analytics', label: 'Analytics & Leads', icon: '' },
+          { id: 'connect', label: 'WhatsApp Device', icon: '' },
         ].map((tab) => (
           <button
             key={tab.id}
@@ -412,7 +412,7 @@ function InboxView({
         <div style={ui.searchWrapper}>
           <input
             type="text"
-            placeholder="🔍 Search inquiries, clients, numbers..."
+            placeholder=" Search inquiries, clients, numbers..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             style={ui.inputField}
@@ -437,7 +437,7 @@ function InboxView({
         <div style={ui.threadScrollList}>
           {threads.length === 0 && (
             <div style={ui.emptyStateBlock}>
-              <div style={{ fontSize: 36, marginBottom: 10 }}>💬</div>
+              <div style={{ fontSize: 36, marginBottom: 10 }}></div>
               <div style={{ color: '#e2e8f0', fontWeight: 600, fontSize: 14 }}>No conversations yet</div>
               <div style={{ color: '#64748b', fontSize: 12, marginTop: 4, textAlign: 'center' }}>
                 Incoming customer WhatsApp messages will appear here in real-time.
@@ -460,7 +460,7 @@ function InboxView({
               >
                 <div style={ui.threadCardTop}>
                   <div style={ui.clientName}>
-                    {t.customerProfile?.vip && '⭐ '}
+                    {t.customerProfile?.vip && ' '}
                     {t.name}
                   </div>
                   <span
@@ -500,7 +500,7 @@ function InboxView({
                           fontWeight: 700,
                         }}
                       >
-                        📍 {t.deliveryLocation.verified ? 'Mapped' : 'Need PIN'}
+                         {t.deliveryLocation.verified ? 'Mapped' : 'Need PIN'}
                       </span>
                     )}
                   </div>
@@ -523,7 +523,7 @@ function InboxView({
       <div style={ui.chatPanel}>
         {!selectedThread ? (
           <div style={ui.noChatSelected}>
-            <div style={{ fontSize: 52, marginBottom: 12 }}>✨</div>
+            <div style={{ fontSize: 52, marginBottom: 12 }}></div>
             <h3 style={{ margin: 0, color: '#f8fafc', fontSize: 18 }}>Select a Conversation</h3>
             <p style={{ color: '#64748b', fontSize: 13, marginTop: 6, maxWidth: 360, textAlign: 'center' }}>
               Choose any client chat from the sidebar to review live messages, send human replies, or monitor AI responses.
@@ -535,7 +535,7 @@ function InboxView({
             <div style={ui.chatTopBanner}>
               <div>
                 <h3 style={{ margin: 0, fontSize: 16, color: '#f8fafc', fontWeight: 700 }}>
-                  {selectedThread.customerProfile?.vip && '⭐ '}
+                  {selectedThread.customerProfile?.vip && ' '}
                   {selectedThread.name}
                 </h3>
                 <span style={{ fontSize: 12, color: '#64748b' }}>{selectedThread.phone}</span>
@@ -549,7 +549,7 @@ function InboxView({
                     background: selectedThread.takeover ? '#dc2626' : '#2563eb',
                   }}
                 >
-                  {selectedThread.takeover ? '🤖 Resume AI' : '👤 Take Over'}
+                  {selectedThread.takeover ? ' Resume AI' : ' Take Over'}
                 </button>
                 <button
                   onClick={() => onAction('resolve', { threadId: selectedThread.id })}
@@ -579,7 +579,7 @@ function InboxView({
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8 }}>
                   <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                     <span style={{ fontSize: 22 }}>
-                      {selectedThread.deliveryLocation.verified ? '📍' : '⚠️'}
+                      {selectedThread.deliveryLocation.verified ? '' : ''}
                     </span>
                     <div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -640,7 +640,7 @@ function InboxView({
                           gap: 4,
                         }}
                       >
-                        🗺️ Google Maps
+                         Google Maps
                       </a>
                     )}
                     {selectedThread.deliveryLocation && (
@@ -661,7 +661,7 @@ function InboxView({
                           gap: 4,
                         }}
                       >
-                        🛵 Rider Route
+                         Rider Route
                       </a>
                     )}
                     <button
@@ -682,7 +682,7 @@ function InboxView({
                         cursor: 'pointer',
                       }}
                     >
-                      📋 Copy Slip
+                       Copy Slip
                     </button>
                   </div>
                 </div>
@@ -739,7 +739,7 @@ function InboxView({
             {selectedThread.draft && (
               <div style={ui.draftBox}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: '#f59e0b' }}>📝 AI CONSULTATIVE DRAFT</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: '#f59e0b' }}> AI CONSULTATIVE DRAFT</span>
                   <div style={{ display: 'flex', gap: 6 }}>
                     <button
                       onClick={() => onAction('approve-thread', { threadId: selectedThread.id })}
@@ -766,7 +766,7 @@ function InboxView({
                 style={ui.quickReplyBtn}
                 title="Quick Product & Policy Replies"
               >
-                ⚡
+                
               </button>
 
               <input
@@ -800,7 +800,7 @@ function InboxView({
             {showQuick && (
               <div style={ui.quickDrawer}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: '#f59e0b', marginBottom: 8 }}>
-                  ⚡ QUICK RESPONSES & WATCH SPECS
+                   QUICK RESPONSES & WATCH SPECS
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 8 }}>
                   {(settings.quickReplies || []).map((qr) => (
@@ -884,7 +884,7 @@ function CatalogView({
     <div style={{ padding: '24px 32px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
         <div>
-          <h2 style={{ margin: 0, fontSize: 22, color: '#f8fafc', fontWeight: 800 }}>🛍️ Product & Watch Catalog</h2>
+          <h2 style={{ margin: 0, fontSize: 22, color: '#f8fafc', fontWeight: 800 }}> Product & Watch Catalog</h2>
           <p style={{ color: '#94a3b8', fontSize: 13, marginTop: 4 }}>
             The AI refers to this exact live catalog to quote prices, highlight specifications, and suggest matching products to customers.
           </p>
@@ -900,7 +900,7 @@ function CatalogView({
           <div key={watch.id} style={ui.productCard}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
               <span style={ui.categoryTag}>{watch.category}</span>
-              {watch.bestseller && <span style={ui.bestsellerTag}>⭐ BESTSELLER</span>}
+              {watch.bestseller && <span style={ui.bestsellerTag}> BESTSELLER</span>}
             </div>
 
             <div style={ui.watchName}>{watch.name}</div>
@@ -1035,13 +1035,13 @@ function BusinessSettingsView({
     <div style={{ padding: '24px 32px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
         <div>
-          <h2 style={{ margin: 0, fontSize: 22, color: '#f8fafc', fontWeight: 800 }}>🏢 Store Profile & Policies</h2>
+          <h2 style={{ margin: 0, fontSize: 22, color: '#f8fafc', fontWeight: 800 }}> Store Profile & Policies</h2>
           <p style={{ color: '#94a3b8', fontSize: 13, marginTop: 4 }}>
             Configure your brand identity, store hours, warranty, shipping, and active discount vouchers.
           </p>
         </div>
         <button onClick={() => onSave(form)} style={ui.primaryBtn}>
-          💾 Save Changes
+           Save Changes
         </button>
       </div>
 
@@ -1173,13 +1173,13 @@ function AIBrainSettingsView({
     <div style={{ padding: '24px 32px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
         <div>
-          <h2 style={{ margin: 0, fontSize: 22, color: '#f8fafc', fontWeight: 800 }}>🧠 AI Thinking & Human Texting Engine</h2>
+          <h2 style={{ margin: 0, fontSize: 22, color: '#f8fafc', fontWeight: 800 }}> AI Thinking & Human Texting Engine</h2>
           <p style={{ color: '#94a3b8', fontSize: 13, marginTop: 4 }}>
             Tailor the consultative intelligence, response length, typing simulations, and tone mirroring.
           </p>
         </div>
         <button onClick={() => onSave(form)} style={ui.primaryBtn}>
-          💾 Save Settings
+           Save Settings
         </button>
       </div>
 
@@ -1187,7 +1187,7 @@ function AIBrainSettingsView({
         {/* Language & Casual Hinglish Mode */}
         <div style={{ ...ui.settingsCard, gridColumn: '1 / -1' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-            <h4 style={ui.cardSectionHeader}>🌐 AI Conversational Language & Mode</h4>
+            <h4 style={ui.cardSectionHeader}> AI Conversational Language & Mode</h4>
             <span style={{ fontSize: 11, background: 'rgba(16, 185, 129, 0.15)', color: '#34d399', padding: '2px 8px', borderRadius: 6, fontWeight: 700 }}>
               Active: {form.language === 'Hinglish' ? 'Casual Hinglish' : form.language === 'English' ? 'English' : form.language === 'Hindi' ? 'Hindi' : 'Auto-Detect'}
             </span>
@@ -1200,26 +1200,26 @@ function AIBrainSettingsView({
             {[
               {
                 id: 'Hinglish',
-                icon: '🇮🇳',
+                icon: '',
                 title: 'Hinglish (Casual & Chic)',
                 badge: 'Recommended',
-                desc: 'Always converses casually in natural, stylish Hinglish ("Haanji bilkul", "Main check karti hu ✨") even if customer texted in English.',
+                desc: 'Always converses casually in natural, stylish Hinglish ("Haanji bilkul", "Main check karti hu ") even if customer texted in English.',
               },
               {
                 id: 'English',
-                icon: '🇬🇧',
+                icon: '',
                 title: 'English (Polished Luxury)',
                 desc: 'Speaks 100% in refined, professional luxury English for all international and corporate clients.',
               },
               {
                 id: 'Hindi',
-                icon: '🕉️',
+                icon: '',
                 title: 'Hindi (हिंदी)',
                 desc: 'Converses respectfully in polite, graceful conversational Hindi.',
               },
               {
                 id: 'auto',
-                icon: '⚡',
+                icon: '',
                 title: 'Auto-Detect (Adaptive)',
                 desc: 'Mirrors whatever language the customer uses (Hinglish or English).',
               },
@@ -1372,30 +1372,30 @@ function AnalyticsView({
 }) {
   return (
     <div style={{ padding: '24px 32px' }}>
-      <h2 style={{ margin: '0 0 20px', fontSize: 22, color: '#f8fafc', fontWeight: 800 }}>📊 Live Performance & Leads</h2>
+      <h2 style={{ margin: '0 0 20px', fontSize: 22, color: '#f8fafc', fontWeight: 800 }}> Live Performance & Leads</h2>
 
       <div style={ui.statsGrid}>
         <div style={ui.statCard}>
-          <div style={{ fontSize: 28, marginBottom: 4 }}>💬</div>
+          <div style={{ fontSize: 28, marginBottom: 4 }}></div>
           <div style={ui.statBigNum}>{threads.length}</div>
           <div style={ui.statSub}>Total Client Inquiries</div>
         </div>
         <div style={ui.statCard}>
-          <div style={{ fontSize: 28, marginBottom: 4 }}>🔥</div>
+          <div style={{ fontSize: 28, marginBottom: 4 }}></div>
           <div style={{ ...ui.statBigNum, color: '#f59e0b' }}>
             {threads.filter((t) => t.tags.includes('hot_lead') || t.tags.includes('order_inquiry')).length}
           </div>
           <div style={ui.statSub}>High Intent / Ready to Buy</div>
         </div>
         <div style={ui.statCard}>
-          <div style={{ fontSize: 28, marginBottom: 4 }}>⭐</div>
+          <div style={{ fontSize: 28, marginBottom: 4 }}></div>
           <div style={{ ...ui.statBigNum, color: '#10b981' }}>
             {threads.filter((t) => t.customerProfile?.vip || t.tags.includes('luxury_buyer')).length}
           </div>
           <div style={ui.statSub}>Luxury / VIP Clients</div>
         </div>
         <div style={ui.statCard}>
-          <div style={{ fontSize: 28, marginBottom: 4 }}>⚡</div>
+          <div style={{ fontSize: 28, marginBottom: 4 }}></div>
           <div style={{ ...ui.statBigNum, color: '#3b82f6' }}>0.8s</div>
           <div style={ui.statSub}>Average AI Decision Speed</div>
         </div>
@@ -1444,7 +1444,7 @@ function ConnectView({
     <div style={{ padding: '32px', maxWidth: 650, margin: '0 auto' }}>
       <div style={ui.connectCard}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-          <span style={{ fontSize: 32 }}>📱</span>
+          <span style={{ fontSize: 32 }}></span>
           <div>
             <h3 style={{ margin: 0, fontSize: 18, color: '#f8fafc', fontWeight: 800 }}>WhatsApp Linked Device</h3>
             <span style={{ fontSize: 13, color: isConnected ? '#10b981' : '#94a3b8' }}>
@@ -1456,7 +1456,7 @@ function ConnectView({
         {isConnected ? (
           <div style={ui.linkedBox}>
             <div style={{ color: '#10b981', fontSize: 16, fontWeight: 700, marginBottom: 6 }}>
-              🟢 Live & Listening to Customer Chats
+               Live & Listening to Customer Chats
             </div>
             <p style={{ color: '#94a3b8', fontSize: 13, margin: 0 }}>
               Device is authenticated as <strong>+{waStatus.connectedPhone}</strong>. Incoming customer queries will
@@ -1491,7 +1491,7 @@ function ConnectView({
               disabled={connecting}
               style={{ ...ui.primaryBtn, padding: '12px 32px', fontSize: 15 }}
             >
-              {connecting ? '⏳ Preparing QR Code...' : '📱 Link WhatsApp Device'}
+              {connecting ? ' Preparing QR Code...' : ' Link WhatsApp Device'}
             </button>
           </div>
         )}
@@ -1524,7 +1524,7 @@ function BusinessSetupModal({
     <div style={ui.modalOverlay}>
       <div style={ui.modalCard}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <h3 style={{ margin: 0, color: '#f8fafc', fontSize: 18 }}>🏢 Configure Business Identity</h3>
+          <h3 style={{ margin: 0, color: '#f8fafc', fontSize: 18 }}> Configure Business Identity</h3>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: 20, cursor: 'pointer' }}>
             ✕
           </button>
@@ -1682,7 +1682,7 @@ function OrdersAndMapView({
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <h2 style={{ margin: 0, fontSize: 22, color: '#f8fafc', fontWeight: 800 }}>
-              📦 Confirmed Orders & Live Delivery Radar
+               Confirmed Orders & Live Delivery Radar
             </h2>
             <span style={{ background: 'rgba(16, 185, 129, 0.2)', color: '#34d399', fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 12 }}>
               GPS Geocoded & Mapped
@@ -1772,7 +1772,7 @@ function OrdersAndMapView({
               border: '1px solid rgba(16, 185, 129, 0.3)',
             }}
           >
-            📍 Live GPS Radar · {selectedOrder ? selectedOrder.id : 'Mysore Central'}
+             Live GPS Radar · {selectedOrder ? selectedOrder.id : 'Mysore Central'}
           </div>
         </div>
 
@@ -1802,7 +1802,7 @@ function OrdersAndMapView({
                       borderRadius: 6,
                     }}
                   >
-                    {selectedOrder.deliveryLocation?.verified ? '✅ PIN VERIFIED' : '⚠️ PIN MISSING'}
+                    {selectedOrder.deliveryLocation?.verified ? ' PIN VERIFIED' : ' PIN MISSING'}
                   </span>
                 </div>
 
@@ -1819,7 +1819,7 @@ function OrdersAndMapView({
                   {selectedOrder.items && selectedOrder.items.length > 0 && (
                     <div style={{ marginTop: 8, borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 8 }}>
                       <div style={{ fontSize: 11, color: '#94a3b8', fontWeight: 700, marginBottom: 4, textTransform: 'uppercase' }}>
-                        📦 Itemized Timepieces ({selectedOrder.quantity || selectedOrder.items.length} units):
+                         Itemized Timepieces ({selectedOrder.quantity || selectedOrder.items.length} units):
                       </div>
                       {selectedOrder.items.map((it, idx) => (
                         <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#cbd5e1', padding: '2px 0' }}>
@@ -1853,12 +1853,12 @@ function OrdersAndMapView({
                   </div>
                   {selectedOrder.deliveryLocation?.pincode && (
                     <div style={{ color: '#34d399', fontSize: 12, fontWeight: 700, marginTop: 2 }}>
-                      📮 Postal PIN Code: {selectedOrder.deliveryLocation.pincode}
+                       Postal PIN Code: {selectedOrder.deliveryLocation.pincode}
                     </div>
                   )}
                   {selectedOrder.deliveryLocation?.lat && (
                     <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 2 }}>
-                      🧭 GPS: {selectedOrder.deliveryLocation.lat.toFixed(4)}° N, {selectedOrder.deliveryLocation.lng?.toFixed(4)}° E
+                       GPS: {selectedOrder.deliveryLocation.lat.toFixed(4)}° N, {selectedOrder.deliveryLocation.lng?.toFixed(4)}° E
                     </div>
                   )}
                 </div>
@@ -1884,7 +1884,7 @@ function OrdersAndMapView({
                       gap: 4,
                     }}
                   >
-                    🗺️ Google Maps
+                     Google Maps
                   </a>
                 )}
                 {selectedOrder.deliveryLocation && (
@@ -1905,7 +1905,7 @@ function OrdersAndMapView({
                       gap: 4,
                     }}
                   >
-                    🛵 Rider Route
+                     Rider Route
                   </a>
                 )}
                 <button
@@ -1926,7 +1926,7 @@ function OrdersAndMapView({
                     cursor: 'pointer',
                   }}
                 >
-                  📋 Copy Slip
+                   Copy Slip
                 </button>
                 <button
                   onClick={() => onJumpToChat(selectedOrder.threadId)}
@@ -1941,13 +1941,13 @@ function OrdersAndMapView({
                     cursor: 'pointer',
                   }}
                 >
-                  💬 Open Chat
+                   Open Chat
                 </button>
               </div>
             </>
           ) : (
             <div style={{ textAlign: 'center', padding: 40, color: '#64748b' }}>
-              <div style={{ fontSize: 36, marginBottom: 8 }}>📍</div>
+              <div style={{ fontSize: 36, marginBottom: 8 }}></div>
               <p>No orders yet. When a customer shares their address or confirms a watch, it will appear here automatically.</p>
             </div>
           )}
@@ -1962,7 +1962,7 @@ function OrdersAndMapView({
             { id: 'ready', label: 'Ready for Dispatch' },
             { id: 'dispatched', label: 'In Transit' },
             { id: 'delivered', label: 'Delivered' },
-            { id: 'needs_pin', label: '⚠️ Needs PIN' },
+            { id: 'needs_pin', label: ' Needs PIN' },
           ].map((f) => (
             <button
               key={f.id}
@@ -1991,7 +1991,7 @@ function OrdersAndMapView({
       {/* Orders List / Table */}
       {filteredOrders.length === 0 ? (
         <div style={{ ...ui.settingsCard, textAlign: 'center', padding: 40, color: '#64748b' }}>
-          <div style={{ fontSize: 40, marginBottom: 10 }}>📦</div>
+          <div style={{ fontSize: 40, marginBottom: 10 }}></div>
           <h4 style={{ margin: 0, color: '#f8fafc' }}>No orders found</h4>
           <p style={{ fontSize: 13, marginTop: 4 }}>
             Click &quot;+ Create Manual Order&quot; to log a test delivery for #1302 Rajkumar Main Road, Sathgalli, Mysore.
@@ -2088,7 +2088,7 @@ function OrdersAndMapView({
                 {/* Watch & Delivery Row */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(30, 41, 59, 0.3)', padding: '8px 12px', borderRadius: 8, flexWrap: 'wrap', gap: 8 }}>
                   <div style={{ fontSize: 13, color: '#e2e8f0' }}>
-                    🛍️ <b style={{ color: '#f8fafc' }}>{ord.productName}</b>
+                     <b style={{ color: '#f8fafc' }}>{ord.productName}</b>
                     {ord.quantity && ord.quantity > 1 && (
                       <span style={{ marginLeft: 8, background: '#d97706', color: '#000', fontSize: 10, fontWeight: 800, padding: '2px 6px', borderRadius: 4 }}>
                         {ord.quantity} WATCHES
@@ -2096,7 +2096,7 @@ function OrdersAndMapView({
                     )}
                   </div>
                   <div style={{ fontSize: 12, color: '#94a3b8' }}>
-                    📍 <span>{ord.deliveryLocation?.raw}</span>
+                     <span>{ord.deliveryLocation?.raw}</span>
                   </div>
                 </div>
 
@@ -2155,7 +2155,7 @@ function OrdersAndMapView({
                         onClick={(e) => e.stopPropagation()}
                         style={{ ...ui.smallActionBtn, background: '#1e293b', border: '1px solid #334155', color: '#60a5fa', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
                       >
-                        🗺️ Map
+                         Map
                       </a>
                     )}
                     <button
@@ -2165,7 +2165,7 @@ function OrdersAndMapView({
                       }}
                       style={{ ...ui.smallActionBtn, background: '#1e293b', border: '1px solid #334155', color: '#34d399' }}
                     >
-                      💬 Chat
+                       Chat
                     </button>
                     <button
                       onClick={(e) => {
@@ -2176,7 +2176,7 @@ function OrdersAndMapView({
                       }}
                       style={{ ...ui.smallActionBtn, background: 'rgba(239, 68, 68, 0.2)', color: '#ef4444' }}
                     >
-                      🗑️
+                      
                     </button>
                   </div>
                 </div>

@@ -1,3 +1,4 @@
+import { enqueueEvent } from './queue-ownership';
 // ─── WhatsApp Automation — Incoming Message Handler ───────────────────────
 import {
   initDatabase,
@@ -47,23 +48,12 @@ export async function handleIncomingMessage(event: any) {
 
     console.log(`[WA] Enqueueing incoming job ${jobId} for [${tenantId}] from ${event.senderName} (${event.senderPhone}): "${event.text?.slice(0, 50)}"`);
 
-    await db()
-      .prepare(
-        "INSERT OR IGNORE INTO wa_jobs (id,thread_id,payload,status,attempts,created,tenant_id) VALUES (?,?,?,'pending',0,?,?)"
-      )
-      .bind(jobId, threadId, JSON.stringify(jobPayload), Date.now(), tenantId)
-      .run();
-
-    // Update customer profile
-    const customer = await getOrCreateCustomer(event.senderPhone, event.senderName, tenantId);
-    customer.totalMessages++;
-    customer.lastContact = Date.now();
-    await saveCustomerProfile(customer, tenantId);
+    if (!await enqueueEvent(tenantId,jobPayload)) return;
 
     // Update connection last event
-    const c = await readState<any>('wa_connection', {});
+    const c = await readState<any>('wa_connection:'+tenantId, {});
     c.lastEvent = Date.now();
-    await writeState('wa_connection', c);
+    await writeState('wa_connection:'+tenantId, c);
 
     // Debounce processing for this thread (2000ms pause)
     const debounceKey = `${tenantId}:${threadId}`;

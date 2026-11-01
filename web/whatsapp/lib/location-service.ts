@@ -1,362 +1,89 @@
-// ─── Location & Address Geocoding Service ───────────────────────────────
-// Extracts Indian addresses, verifies 6-digit PIN codes, performs geocoding,
-// and produces Google Maps & OpenStreetMap navigation links.
-
+// Address detection preserves customer input. Geocoding never substitutes a guessed city or house.
 export interface ParsedAddress {
-  raw: string;
-  pincode?: string;
-  pincodeMissing: boolean;
-  hasAddressDetails: boolean;
-  street?: string;
-  locality?: string;
-  city?: string;
-  state?: string;
-  lat?: number;
-  lng?: number;
-  mapUrl?: string;
-  directionsUrl?: string;
-  formattedAddress?: string;
-  verified: boolean;
-  mappedAt?: number;
+  raw: string; pincode?: string; pincodeMissing: boolean; hasAddressDetails: boolean;
+  street?: string; locality?: string; city?: string; state?: string;
+  lat?: number; lng?: number; mapUrl?: string; directionsUrl?: string;
+  formattedAddress?: string; verified: boolean; mappedAt?: number;
+  confidence?: 'low' | 'medium' | 'high';
+  precision?: 'supplied' | 'rooftop' | 'interpolated' | 'area' | 'unknown';
+  source?: 'customer' | 'google' | 'text';
+  needsReview?: boolean;
 }
-
-// Common Indian address triggers & patterns
-const ADDRESS_KEYWORDS = [
-  'road', 'rd', 'street', 'st', 'main', 'cross', 'layout', 'nagar', 'colony',
-  'galli', 'gallli', 'lane', 'sector', 'block', 'phase', 'stage', 'apartments?',
-  'flat', 'house', 'plot', '#', 'no\\.', 'floor', 'bhavan', 'enclave', 'society',
-  'near', 'opp', 'opposite', 'behind', 'beside', 'hospital', 'school', 'college',
-  'mysore', 'mysuru', 'bangalore', 'bengaluru', 'mumbai', 'delhi', 'chennai', 'hyderabad', 'kolkata', 'pune'
+export const SPELLING_CORRECTIONS: [RegExp,string][] = [
+  [/\bmysore\b/gi,'Mysuru'],[/\bbangalore\b/gi,'Bengaluru'],
+  [/\bmain\s+rd\b/gi,'Main Road'],[/\bopp\.?(?=\s)/gi,'Opposite'],
 ];
-
-export function extractAddressText(text: string): string {
-  if (!text) return '';
-  const addrMatch = text.match(/(?:address\s*(?:is|:)?\s*)(#?[^.\n]+)/i);
-  if (addrMatch && addrMatch[1] && addrMatch[1].trim().length > 10) {
-    return addrMatch[1].trim();
-  }
-  const hashMatch = text.match(/(#\s*\d+[^.\n]+)/i);
-  if (hashMatch && hashMatch[1] && hashMatch[1].trim().length > 10) {
-    return hashMatch[1].trim();
-  }
-  return text.trim();
+export function extractPincode(text:string):string|null {
+  return text.match(/\b([1-9]\d{2})\s?(\d{3})\b/)?.slice(1).join('') || null;
 }
-
-// ── Address Spell-Correction & Normalization Dictionary ──────────────────
-
-export const SPELLING_CORRECTIONS: [RegExp, string][] = [
-  // Localities & Layouts (Mysore)
-  [/\b(?:#\s*)?1302\b/gi, '#1302'],
-  [/\b(sathgalli|sathagalli|satgalli|sathgali|sathagally|sathgally|satgally)\s*(?:layout|ext|extension)?\b/gi, 'Sathgalli Layout'],
-  [/\b(?:dr\.?\s*)?(?:rajkumar|raj\s*kumar)\s*(?:main\s*)?(?:rd|road|roadd)\b/gi, 'Dr. Rajkumar Road'],
-  [/\b(vijayanagar|vijaynagar|vijaya\s*nagar|vijay\s*nagar)\s*(?:stage|phase)?\s*(\d+)?\b/gi, 'Vijayanagar'],
-  [/\b(kuvempunagar|kuvempu\s*nagar)\b/gi, 'Kuvempunagar'],
-  [/\b(gokulam|gokula)\s*(?:stage|phase)?\s*(\d+)?\b/gi, 'Gokulam'],
-  [/\b(jayalakshmipuram|jaylaxmipuram|jaya\s*lakshmipuram)\b/gi, 'Jayalakshmipuram'],
-  [/\b(saraswathipuram|saraswathipura)\b/gi, 'Saraswathipuram'],
-  [/\b(hebbal|hebbala)\b/gi, 'Hebbal'],
-  [/\b(kalyanagiri|kalyangiri)\b/gi, 'Kalyanagiri'],
-  [/\b(rajivnagar|rajiv\s*nagar|rajeev\s*nagar)\b/gi, 'Rajiv Nagar'],
-  [/\b(yaraganahalli|yeraganahalli)\b/gi, 'Yaraganahalli'],
-  [/\b(hanchya|hancha)\b/gi, 'Hanchya'],
-
-  // Cities
-  [/\b(mysore|mysuru|mysur)\b/gi, 'Mysuru'],
-  [/\b(bangalore|bengaluru|bengalooru|blr)\b/gi, 'Bengaluru'],
-
-  // Landmarks & Typos
-  [/\b(sheesho|sheesh|shesh|shish)\s*(?:hospital|hosp|hopital)\b/gi, 'Sheesho Hospital'],
-  [/\b(crystal\s*palace)\b/gi, 'The Crystal Palace Banquet Hall'],
-  [/\b(vtu\s*rd|vtu\s*road)\b/gi, 'VTU Road'],
-
-  // Road & Direction abbreviations
-  [/\b(mn\s*rd|main\s*rd)\b/gi, 'Main Road'],
-  [/\b(roadd)\b/gi, 'Road'],
-  [/\b(crs|crss)\b/gi, 'Cross'],
-  [/\b(nr|near\s*to)\b/gi, 'Near'],
-  [/\b(opp|opposite\s*to|oppo)\b/gi, 'Opposite'],
-  [/\b(bhd|behind)\b/gi, 'Behind'],
-  [/\b(bsd|beside)\b/gi, 'Beside'],
-  [/\b(?:d\.?\s*no\.?|door\s*no\.?|house\s*no\.?|plot\s*no\.?|flat\s*no\.?)\s*(\d+)/gi, '#$1'],
-];
-
-/**
- * Intelligent spell-corrector and address normalizer.
- * Corrects typos, replaces informal slang with formal municipal names,
- * and builds high-precision search strings for Google Maps.
- */
-export function cleanAndSpellCheckAddress(rawText: string): {
-  normalizedText: string;
-  detectedCity: string;
-  detectedPincode: string | null;
-  detectedLandmark?: string;
-  searchQuery: string;
-} {
-  let cleaned = extractAddressText(rawText);
-
-  // Apply spelling and typo corrections
-  for (const [pattern, replacement] of SPELLING_CORRECTIONS) {
-    cleaned = cleaned.replace(pattern, replacement);
-  }
-
-  // Deduplicate spaces and commas
-  cleaned = cleaned.replace(/\s*,\s*/g, ', ').replace(/\s{2,}/g, ' ').trim();
-
-  // Extract PIN code
-  const pin = extractPincode(cleaned);
-
-  // Extract City
-  const isMysore = /mysuru|mysore/i.test(cleaned);
-  const isBangalore = /bengaluru|bangalore/i.test(cleaned);
-  const detectedCity = isMysore ? 'Mysuru' : isBangalore ? 'Bengaluru' : 'Mysuru';
-
-  // Ensure state
-  const state = 'Karnataka';
-
-  // Extract Landmark
-  let detectedLandmark = '';
-  const landmarkMatch = cleaned.match(/(?:Near|Opposite|Behind|Beside)\s+([A-Za-z0-9\s]{3,35})/i);
-  if (landmarkMatch) {
-    detectedLandmark = landmarkMatch[0].trim();
-  }
-
-  // Build clean search query for Google Maps
-  let searchQuery = '';
-  if (cleaned.includes('1302') && cleaned.includes('Sathgalli')) {
-    searchQuery = `1302, Sathgalli Layout, Dr Rajkumar Road, Mysuru, Karnataka${pin ? ` ${pin}` : ''}`;
-  } else {
-    // Strip leading hash for cleaner Google Maps search
-    const cleanNoHash = cleaned.replace(/^#\s*/, '');
-    searchQuery = `${cleanNoHash}${!cleanNoHash.includes(detectedCity) ? `, ${detectedCity}` : ''}, ${state}${pin ? ` ${pin}` : ''}`;
-  }
-
-  return {
-    normalizedText: cleaned,
-    detectedCity,
-    detectedPincode: pin,
-    detectedLandmark,
-    searchQuery,
-  };
+export function extractAddressText(text:string):string {
+  const marked=text.match(/(?:delivery\s+address|my\s+address|address)\s*(?:is|:|-)?\s*([\s\S]+)/i);
+  return (marked?.[1] || text).split('\n').filter(line=>!/^\s*(?:phone|mobile|contact|name)\s*:/i.test(line))
+    .join(', ').replace(/\s+/g,' ').trim().slice(0,2000);
 }
-
-const PINCODE_REGEX = /\b([1-9][0-9]{2}\s?[0-9]{3})\b/;
-
-// Known coordinate lookups for popular cities/localities for instant offline precision
-const KNOWN_AREAS: Record<string, { lat: number; lng: number; city: string; state: string; defaultPin?: string; queryName?: string }> = {
-  '1302': { lat: 12.3256, lng: 76.6888, city: 'Mysuru', state: 'Karnataka', defaultPin: '570019', queryName: '1302, Sathgalli Layout, Dr Rajkumar Road, Mysuru, Karnataka' },
-  'sathgalli': { lat: 12.3256, lng: 76.6888, city: 'Mysuru', state: 'Karnataka', defaultPin: '570019', queryName: 'Sathgalli Layout, Dr Rajkumar Road, Mysuru, Karnataka' },
-  'rajkumar main road': { lat: 12.3256, lng: 76.6888, city: 'Mysuru', state: 'Karnataka', defaultPin: '570019', queryName: 'Sathgalli Layout, Dr Rajkumar Road, Mysuru, Karnataka' },
-  'mohommadiya masjid': { lat: 12.3297, lng: 76.6792, city: 'Mysuru', state: 'Karnataka', defaultPin: '570019', queryName: 'Mohommadiya Masjid, Shantinagar North, Rajiv Nagar, Mysuru' },
-  'mohammadiya masjid': { lat: 12.3297, lng: 76.6792, city: 'Mysuru', state: 'Karnataka', defaultPin: '570019', queryName: 'Mohommadiya Masjid, Shantinagar North, Rajiv Nagar, Mysuru' },
-  'mohommadiya': { lat: 12.3297, lng: 76.6792, city: 'Mysuru', state: 'Karnataka', defaultPin: '570019', queryName: 'Mohommadiya Masjid, Shantinagar North, Rajiv Nagar, Mysuru' },
-  'mohammadiya': { lat: 12.3297, lng: 76.6792, city: 'Mysuru', state: 'Karnataka', defaultPin: '570019', queryName: 'Mohommadiya Masjid, Shantinagar North, Rajiv Nagar, Mysuru' },
-  'shanthinagar north': { lat: 12.3297, lng: 76.6792, city: 'Mysuru', state: 'Karnataka', defaultPin: '570019', queryName: 'Shanthinagar North, Rajiv Nagar, Mysuru' },
-  'shantinagar north': { lat: 12.3297, lng: 76.6792, city: 'Mysuru', state: 'Karnataka', defaultPin: '570019', queryName: 'Shantinagar North, Rajiv Nagar, Mysuru' },
-  'shanthinagar': { lat: 12.3297, lng: 76.6792, city: 'Mysuru', state: 'Karnataka', defaultPin: '570019', queryName: 'Shanthinagar, Rajiv Nagar, Mysuru' },
-  'shantinagar': { lat: 12.3297, lng: 76.6792, city: 'Mysuru', state: 'Karnataka', defaultPin: '570019', queryName: 'Shantinagar, Rajiv Nagar, Mysuru' },
-  'rajiv nagar': { lat: 12.3315, lng: 76.6780, city: 'Mysuru', state: 'Karnataka', defaultPin: '570019', queryName: 'Rajiv Nagar, Mysuru' },
-  'rajivnagar': { lat: 12.3315, lng: 76.6780, city: 'Mysuru', state: 'Karnataka', defaultPin: '570019', queryName: 'Rajiv Nagar, Mysuru' },
-  'kalyanagiri': { lat: 12.3275, lng: 76.6830, city: 'Mysuru', state: 'Karnataka', defaultPin: '570019', queryName: 'Kalyanagiri, Mysuru' },
-  'vijayanagar': { lat: 12.3340, lng: 76.6120, city: 'Mysuru', state: 'Karnataka', defaultPin: '570017', queryName: 'Vijayanagar, Mysuru, Karnataka' },
-  'kuvempunagar': { lat: 12.2850, lng: 76.6260, city: 'Mysuru', state: 'Karnataka', defaultPin: '570023', queryName: 'Kuvempunagar, Mysuru, Karnataka' },
-  'gokulam': { lat: 12.3310, lng: 76.6340, city: 'Mysuru', state: 'Karnataka', defaultPin: '570002', queryName: 'Gokulam, Mysuru, Karnataka' },
-  'jayalakshmipuram': { lat: 12.3210, lng: 76.6320, city: 'Mysuru', state: 'Karnataka', defaultPin: '570012', queryName: 'Jayalakshmipuram, Mysuru, Karnataka' },
-  'indiranagar': { lat: 12.9719, lng: 77.6412, city: 'Bengaluru', state: 'Karnataka', defaultPin: '560038', queryName: 'Indiranagar, Bengaluru, Karnataka' },
-  'koramangala': { lat: 12.9352, lng: 77.6245, city: 'Bengaluru', state: 'Karnataka', defaultPin: '560034', queryName: 'Koramangala, Bengaluru, Karnataka' },
-  'whitefield': { lat: 12.9698, lng: 77.7500, city: 'Bengaluru', state: 'Karnataka', defaultPin: '560066', queryName: 'Whitefield, Bengaluru, Karnataka' },
-  'jayanagar': { lat: 12.9308, lng: 77.5838, city: 'Bengaluru', state: 'Karnataka', defaultPin: '560041', queryName: 'Jayanagar, Bengaluru, Karnataka' },
-};
-
-/**
- * Checks if the text looks like an address or contains address details
- */
-export function containsAddress(text: string): boolean {
-  if (!text || text.length < 8) return false;
-  const lower = text.toLowerCase();
-  if (lower.includes('address is') || lower.includes('address:') || lower.includes('my address')) return true;
-  
-  // Has house/door number or #
-  const hasNumber = /#\s*\d+|\b(?:no|flat|plot|house|door)\.?\s*\d+/i.test(text);
-  
-  // Count keyword matches
-  let matchCount = 0;
-  for (const kw of ADDRESS_KEYWORDS) {
-    if (new RegExp(`\\b${kw}\\b`, 'i').test(lower)) {
-      matchCount++;
-    }
-  }
-
-  // Comma-separated parts with street indicators
-  const commaParts = text.split(',').length;
-
-  return (hasNumber && matchCount >= 1) || matchCount >= 2 || (commaParts >= 2 && matchCount >= 1);
+export function containsAddress(text:string):boolean {
+  return /\b(?:address|flat|apartment|house|plot|street|road|lane|sector|layout|colony|nagar|pincode|pin code)\b/i.test(text) &&
+    (text.trim().length>=12 || /address\s*:/i.test(text));
 }
-
-/**
- * Extracts 6-digit PIN code from text
- */
-export function extractPincode(text: string): string | null {
-  if (!text) return null;
-  const m = text.match(PINCODE_REGEX);
-  if (m) {
-    return m[1].replace(/\s+/g, '');
-  }
-  return null;
+export function cleanAndSpellCheckAddress(text:string) {
+  let normalizedText=extractAddressText(text);
+  for(const [pattern,replacement] of SPELLING_CORRECTIONS) normalizedText=normalizedText.replace(pattern,replacement);
+  const city=normalizedText.match(/\b(Mysuru|Bengaluru|Mumbai|Delhi|Chennai|Hyderabad|Kolkata|Pune|Jaipur|Kochi|Ahmedabad)\b/i)?.[0] || '';
+  return {normalizedText,detectedCity:city,detectedPincode:extractPincode(normalizedText),searchQuery:normalizedText};
 }
-
-/**
- * Geocodes an address string to coordinates using OpenStreetMap Nominatim
- * with fallback to local lookup
- */
-export async function geocodeAddress(query: string, cityHint?: string): Promise<{ lat: number; lng: number; displayName: string } | null> {
-  const clean = query
-    .replace(/^[#\d\-\/,\s]+/, '') // strip leading door number for broader match
-    .replace(/[#]/g, '')
-    .trim();
-
-  // 1. Check known local database for instant precision
-  const lower = query.toLowerCase();
-  for (const [key, loc] of Object.entries(KNOWN_AREAS)) {
-    if (lower.includes(key)) {
-      return {
-        lat: loc.lat,
-        lng: loc.lng,
-        displayName: `${query.trim()}, ${loc.city}, ${loc.state}, India`,
-      };
-    }
-  }
-
-  // 2. Try Nominatim Geocoding API (OpenStreetMap)
+function coordinates(text:string):{lat:number;lng:number}|null {
+  const shared=text.match(/\[Location:\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\]/i);
+  const maps=text.match(/https:\/\/(?:www\.)?(?:google\.com\/maps|maps\.google\.com)[^\s]*/i)?.[0];
+  const pair=shared || maps?.match(/(?:@|[?&](?:q|query)=)(-?\d+(?:\.\d+)?)(?:,|%2C)\s*(-?\d+(?:\.\d+)?)/i);
+  if(!pair) return null;
+  const lat=Number(pair[1]),lng=Number(pair[2]);
+  return Number.isFinite(lat)&&Number.isFinite(lng)&&Math.abs(lat)<=90&&Math.abs(lng)<=180?{lat,lng}:null;
+}
+export async function geocodeAddress(query:string,cityHint?:string):Promise<{lat:number;lng:number;displayName:string;precision:'rooftop'|'interpolated'|'area';pincode?:string;city?:string;state?:string;partial:boolean}|null> {
+  const key=process.env.GOOGLE_GEOCODING_API_KEY;
+  if(!key) return null;
+  const url=new URL('https://maps.googleapis.com/maps/api/geocode/json');
+  url.searchParams.set('address',query);url.searchParams.set('key',key);
+  // No regional default: businesses may receive addresses from different states or countries.
   try {
-    const searchParam = encodeURIComponent(`${clean}${cityHint ? ' ' + cityHint : ''}, India`);
-    const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${searchParam}&limit=1&countrycodes=in`, {
-      headers: {
-        'User-Agent': 'Nina-Titan-Delivery-Concierge/1.0 (contact@titan.co.in)',
-      },
-      signal: AbortSignal.timeout(4000),
-    });
-
-    if (res.ok) {
-      const data: any = await res.json();
-      if (Array.isArray(data) && data.length > 0) {
-        return {
-          lat: parseFloat(data[0].lat),
-          lng: parseFloat(data[0].lon),
-          displayName: data[0].display_name,
-        };
-      }
-    }
-  } catch (e) {
-    // Graceful fallback if offline or timeout
-  }
-
-  // 3. Fallback to city coordinates
-  if (lower.includes('mysore') || lower.includes('mysuru')) {
-    return { lat: 12.3256, lng: 76.6888, displayName: `${query}, Mysuru, Karnataka, India` };
-  }
-  if (lower.includes('bangalore') || lower.includes('bengaluru')) {
-    return { lat: 12.9716, lng: 77.5946, displayName: `${query}, Bengaluru, Karnataka, India` };
-  }
-
-  return null;
+    const response=await fetch(url,{signal:AbortSignal.timeout(6000),cache:'no-store'});
+    if(!response.ok) return null;
+    const data=await response.json();
+    const result=data.status==='OK'?data.results?.[0]:null;
+    const point=result?.geometry?.location;
+    if(!point || !Number.isFinite(point.lat)||!Number.isFinite(point.lng)||Math.abs(point.lat)>90||Math.abs(point.lng)>180) return null;
+    const component=(type:string)=>result.address_components?.find((c:any)=>c.types?.includes(type))?.long_name;
+    const suppliedPin=extractPincode(query),foundPin=component('postal_code');
+    if(suppliedPin && foundPin && suppliedPin!==foundPin) return null;
+    if(cityHint && !String(result.formatted_address).toLowerCase().includes(cityHint.toLowerCase())) return null;
+    return {lat:point.lat,lng:point.lng,displayName:result.formatted_address,
+      precision:result.geometry.location_type==='ROOFTOP'?'rooftop':result.geometry.location_type==='RANGE_INTERPOLATED'?'interpolated':'area',
+      pincode:foundPin,city:component('locality'),state:component('administrative_area_level_1'),partial:!!result.partial_match};
+  } catch { return null; }
 }
-
-/**
- * Parses and processes a full or partial address text.
- * Returns parsed information, pincode status, coordinates, and Google Maps links.
- */
-export async function parseAndMapAddress(
-  text: string,
-  existingLocation?: ParsedAddress
-): Promise<ParsedAddress | null> {
-  const isAddress = containsAddress(text);
-  const foundPin = extractPincode(text);
-
-  // If text is purely a 6-digit pin code and we have an existing address missing pincode
-  if (!isAddress && foundPin && existingLocation?.raw) {
-    const combinedAddress = `${existingLocation.raw}, PIN: ${foundPin}`;
-    const geocoded = await geocodeAddress(combinedAddress, existingLocation.city);
-    const lat = geocoded?.lat || existingLocation.lat || 12.3256;
-    const lng = geocoded?.lng || existingLocation.lng || 76.6888;
-
-    const cleanSearchQuery = (combinedAddress.toLowerCase().includes('1302') || combinedAddress.toLowerCase().includes('sathgalli'))
-      ? `1302, Sathgalli Layout, Dr Rajkumar Road, Mysuru, Karnataka ${foundPin}`
-      : `${combinedAddress.replace(/^[#\s]+/, '')}, India`;
-
-    return {
-      raw: combinedAddress,
-      pincode: foundPin,
-      pincodeMissing: false,
-      hasAddressDetails: true,
-      street: existingLocation.street || '#1302 Rajkumar Main Road',
-      locality: existingLocation.locality || 'Sathgalli Layout',
-      city: existingLocation.city || 'Mysore',
-      state: existingLocation.state || 'Karnataka',
-      lat,
-      lng,
-      mapUrl: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(cleanSearchQuery)}`,
-      directionsUrl: `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(cleanSearchQuery)}`,
-      formattedAddress: geocoded?.displayName || cleanSearchQuery,
-      verified: true,
-      mappedAt: Date.now(),
-    };
-  }
-
-  if (!isAddress && !foundPin) {
-    return null;
-  }
-
-  // Pre-process, spell-check, and normalize address before geocoding
-  const checked = cleanAndSpellCheckAddress(text);
-  const pin = foundPin || checked.detectedPincode || existingLocation?.pincode;
-  const pincodeMissing = !pin;
-
-  // Try geocoding with spell-checked standardized text
-  const geocoded = await geocodeAddress(checked.normalizedText, checked.detectedCity);
-  const lat = geocoded?.lat || (checked.detectedCity === 'Mysuru' ? 12.3256 : 12.9716);
-  const lng = geocoded?.lng || (checked.detectedCity === 'Mysuru' ? 76.6888 : 77.5946);
-
-  const cleanSearchQuery = checked.searchQuery;
-  const mapUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(cleanSearchQuery)}`;
-  const directionsUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(cleanSearchQuery)}`;
-
-  return {
-    raw: checked.normalizedText,
-    pincode: pin || undefined,
-    pincodeMissing,
-    hasAddressDetails: true,
-    city: checked.detectedCity,
-    state: 'Karnataka',
-    lat,
-    lng,
-    mapUrl,
-    directionsUrl,
-    formattedAddress: geocoded?.displayName || cleanSearchQuery,
-    verified: !pincodeMissing,
-    mappedAt: Date.now(),
-  };
+export async function parseAndMapAddress(text:string,existingLocation?:ParsedAddress):Promise<ParsedAddress|null> {
+  const point=coordinates(text);
+  const pin=extractPincode(text);
+  const pinOnly=/^\s*(?:(?:pin(?:code)?|postal code)\s*[: -]?\s*)?[1-9]\d{2}\s?\d{3}\s*$/i.test(text);
+  if(!point && !containsAddress(text) && !(pinOnly&&existingLocation?.raw)) return null;
+  const raw=pinOnly&&existingLocation?existingLocation.raw.replace(/\b[1-9]\d{2}\s?\d{3}\b/g,'').replace(/[,\s]+$/,'')+', '+pin:extractAddressText(text);
+  const checked=cleanAndSpellCheckAddress(raw);
+  const geo=!point?await geocodeAddress(checked.normalizedText,checked.detectedCity):null;
+  const position=point || geo;
+  const query=position?`${position.lat},${position.lng}`:checked.searchQuery;
+  return {raw:checked.normalizedText,pincode:pin || geo?.pincode || undefined,pincodeMissing:!(pin||geo?.pincode),
+    hasAddressDetails:!point&&containsAddress(raw),city:geo?.city || checked.detectedCity || undefined,state:geo?.state,
+    lat:position?.lat,lng:position?.lng,formattedAddress:geo?.displayName || checked.normalizedText,
+    mapUrl:'https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(query),
+    directionsUrl:'https://www.google.com/maps/dir/?api=1&destination='+encodeURIComponent(query),
+    verified:false,source:point?'customer':geo?'google':'text',
+    precision:point?'supplied':geo?.precision || 'unknown',
+    confidence:point?'high':geo?.precision==='rooftop'&&!geo.partial?'high':geo?'medium':'low',
+    needsReview:true,mappedAt:Date.now()};
 }
-
-/**
- * Formats a comprehensive delivery confirmation card for WhatsApp and dashboard
- */
-export function formatDeliveryConfirmation(loc: ParsedAddress): string {
-  if (loc.pincodeMissing) {
-    return `📍 Delivery Address Noted:\n${loc.raw}\n\n⚠️ 6-digit Pincode is required to finalize exact GPS mapping and dispatch.`;
-  }
-
-  return `📍 DELIVERY LOCATION MAPPED & VERIFIED ✨
-──────────────
-🏢 Address: ${loc.raw}
-📮 PIN Code: ${loc.pincode} [Verified]
-🗺️ Exact Google Map Pin: ${loc.mapUrl}
-🧭 GPS Coordinates: ${loc.lat?.toFixed(4)}° N, ${loc.lng?.toFixed(4)}° E
-
-📦 COMPLETE DISPATCH TASKS:
-1️⃣ Address & Locality Geocoded ✅
-2️⃣ Courier Hub: Express BlueDart / DTDC Assigned
-3️⃣ Packaging: Insured Tamper-Proof Luxury Titan Case
-4️⃣ Estimated Delivery: 2-3 Business Days
-5️⃣ Rider Navigation: ${loc.directionsUrl}`;
+export function formatDeliveryConfirmation(loc:ParsedAddress):string {
+  return ['Delivery address received',loc.raw,loc.pincode?'Postal code: '+loc.pincode:'Postal code required',
+    loc.source==='customer'?'Customer-shared map position':loc.lat!==undefined?'Suggested map match; confirm before dispatch':'Map position not confirmed',
+    loc.mapUrl || ''].filter(Boolean).join('\n');
 }
 

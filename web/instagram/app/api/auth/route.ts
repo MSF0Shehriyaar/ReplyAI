@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { readState, writeState, db } from '@/lib/server';
+import { readState, writeState, db, audit, isAllowedOrigin } from '@/lib/server';
 
-// In-memory brute-force protection
-const failedAttempts = new Map<string, { count: number; lockedUntil: number }>();
+
 const SESSION_COOKIE_NAME = 'nina_owner_session';
 const SECRET_SIGN_KEY = process.env.SESSION_SIGNING_KEY || '';
 
@@ -18,7 +17,7 @@ export interface OwnerCredentials {
   pinUpdatedAt?: number;
 }
 
-export async function hashString(value: string, salt: string): Promise<string> {
+async function hashString(value: string, salt: string): Promise<string> {
   const enc = new TextEncoder();
   const keyMaterial = await crypto.subtle.importKey(
     'raw',
@@ -40,8 +39,11 @@ export async function hashString(value: string, salt: string): Promise<string> {
   return Array.from(new Uint8Array(derived)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-export async function signToken(payload: string): Promise<string> {
+async function signToken(payload: string): Promise<string> {
   if (SECRET_SIGN_KEY.length < 32) throw new Error('Session signing is not configured.');
+  const data = { ...JSON.parse(payload), jti: crypto.randomUUID() };
+  payload = JSON.stringify(data);
+  await writeState('owner_session:' + data.jti, { user: data.user, expiresAt: data.exp });
   const enc = new TextEncoder();
   const key = await crypto.subtle.importKey(
     'raw',
@@ -55,8 +57,8 @@ export async function signToken(payload: string): Promise<string> {
   return `${btoa(payload)}.${sigHex}`;
 }
 
-export async function verifyToken(token: string): Promise<boolean> {
-  return (await import('@/lib/owner-session')).validOwnerSession(token);
+async function verifyToken(token: string): Promise<boolean> {
+  return (await import('@/lib/owner-session')).validStoredOwnerSession(token, async key => { const row=await db().prepare('SELECT payload FROM workspace_state WHERE key=?').bind(key).first<{payload:string}>(); return row?JSON.parse(row.payload):null; });
 
 }
 
@@ -76,7 +78,7 @@ export async function GET(req: NextRequest) {
       user: authenticated ? { userId: 'owner', displayName: creds?.username || 'Workspace Owner' } : undefined
     }, { status: authenticated ? 200 : 401 });
   } catch (err: any) {
-    return NextResponse.json({ authenticated: false, hasSignedUp: false, error: err.message }, { status: 500 });
+    return NextResponse.json({ authenticated: false, hasSignedUp: false, error: 'Authentication unavailable' }, { status: 500 });
   }
 }
 
@@ -84,17 +86,19 @@ export async function POST(req: NextRequest) {
   const ip = req.headers.get('x-forwarded-for') || '127.0.0.1';
   const now = Date.now();
 
-  const attempt = failedAttempts.get(ip);
-  if (attempt && attempt.lockedUntil > now) {
-    const waitSecs = Math.ceil((attempt.lockedUntil - now) / 1000);
-    return NextResponse.json(
-      { error: `Too many failed attempts. Locked for security. Try again in ${waitSecs} seconds.` },
-      { status: 429 }
-    );
-  }
-
   try {
-    const body: any = await req.json();
+    const origin = req.headers.get('origin');
+    if (!isAllowedOrigin(origin, req.url)) return NextResponse.json({error:'Invalid request origin.'},{status:403});
+    const bucket = 'owner_login_rate:'+ip;
+    const limit = await db().prepare(`INSERT INTO workspace_state(key,payload) VALUES (?,?)
+      ON CONFLICT(key) DO UPDATE SET payload=CASE WHEN json_extract(payload,'$.until')<=? THEN excluded.payload
+      ELSE json_set(payload,'$.count',json_extract(payload,'$.count')+1) END RETURNING payload`)
+      .bind(bucket,JSON.stringify({count:1,until:now+15*60000}),now).first<{payload:string}>();
+    if (!limit || JSON.parse(limit.payload).count > 10) return NextResponse.json({error:'Too many attempts. Try again later.'},{status:429});
+    const raw = await req.text();
+    if (raw.length > 8192) return NextResponse.json({error:'Request too large.'},{status:413});
+    const body: any = JSON.parse(raw);
+
     const action = String(body?.action || 'login').trim();
     let creds = await readState<OwnerCredentials | null>('owner_credentials', null);
 
@@ -118,7 +122,8 @@ export async function POST(req: NextRequest) {
       }
 
       // Verify current password if provided
-      if (currentPassword && creds.passwordHash) {
+      if (!currentPassword || !creds.passwordHash) return NextResponse.json({error:"Current password required."},{status:403});
+      if (creds.passwordHash) {
         const passHash = await hashString(currentPassword, creds.salt);
         if (passHash !== creds.passwordHash) {
           return NextResponse.json({ error: 'Incorrect current password.' }, { status: 403 });
@@ -129,7 +134,7 @@ export async function POST(req: NextRequest) {
       const updatedCreds: OwnerCredentials = {
         ...creds,
         pinHash,
-        pin: newPin, // keep backwards compatibility
+        pin: undefined,
         pinUpdatedAt: now
       };
 
@@ -166,7 +171,7 @@ export async function POST(req: NextRequest) {
         // 2. Verify password or PIN
         const hash = await hashString(enteredPass, creds.salt);
         const passMatches = hash === creds.passwordHash;
-        const pinMatches = (creds.pinHash && hash === creds.pinHash) || (creds.pin && enteredPass === creds.pin);
+        const pinMatches = creds.pinHash && hash === creds.pinHash;
 
         if (passMatches || pinMatches) {
           authenticated = true;
@@ -181,24 +186,12 @@ export async function POST(req: NextRequest) {
     }
 
     if (!authenticated) {
-      const count = (attempt?.count || 0) + 1;
-      const lockedUntil = count >= 5 ? now + 15 * 60 * 1000 : 0;
-      failedAttempts.set(ip, { count, lockedUntil });
-
-      const remaining = 5 - count;
-      return NextResponse.json(
-        { 
-          error: remaining > 0 
-            ? `Incorrect credentials. ${remaining} attempts remaining before temporary lockout.` 
-            : 'Too many failed attempts. Security lockout active for 15 minutes.' 
-        },
-        { status: 401 }
-      );
+      await audit('Login failed','Owner sign-in rejected');
+      return NextResponse.json({error:'Incorrect credentials.'},{status:401});
     }
-
-    // Reset failed attempts on success
-    failedAttempts.delete(ip);
-
+    await writeState(bucket,{count:0,until:0});
+    if (creds?.pin) { delete creds.pin; await writeState('owner_credentials',creds); }
+    await audit('Owner login','Owner signed in');
     // Create session (30 days validity)
     const token = await signToken(JSON.stringify({
       user: creds?.username || 'owner',
@@ -221,12 +214,21 @@ export async function POST(req: NextRequest) {
 
     return res;
   } catch (err: any) {
-    return NextResponse.json({ error: err.message || 'Authentication failed' }, { status: 400 });
+    return NextResponse.json({ error: 'Authentication failed' }, { status: 400 });
   }
 }
 
-export async function DELETE() {
+export async function DELETE(request: NextRequest) {
+  const origin = request.headers.get('origin');
+  if (!isAllowedOrigin(origin, request.url)) return NextResponse.json({error:'Invalid request origin.'},{status:403});
+  const token = request.cookies.get(SESSION_COOKIE_NAME)?.value;
+  if (token && await verifyToken(token)) {
+    const payload = JSON.parse(atob(token.split('.')[0]));
+    await writeState('owner_session:'+payload.jti,{revokedAt:Date.now()});
+    await audit('Owner logout','Owner session revoked');
+  }
   const res = NextResponse.json({ ok: true });
   res.cookies.delete(SESSION_COOKIE_NAME);
+  res.cookies.delete('wa_session');
   return res;
 }

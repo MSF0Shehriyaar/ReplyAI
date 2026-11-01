@@ -29,6 +29,8 @@ import {
   type TursoUsageStats,
 } from './model';
 import { createTursoAdapter } from './turso';
+import { migrateTenantTables } from './tenant-migration';
+import { RequestError } from './request-security';
 
 const env: any = typeof process !== 'undefined' ? process.env : {};
 
@@ -66,7 +68,12 @@ export function db(): ReturnType<typeof createTursoAdapter> {
 
 // ── Database Init (WhatsApp-specific tables & Multi-Tenant Architecture) ──
 
+let initialization: Promise<void> | undefined;
 export async function initDatabase() {
+  if (!initialization) initialization = initializeDatabase().catch(error => { initialization = undefined; throw error; });
+  return initialization;
+}
+async function initializeDatabase() {
   const d = db();
 
   // 1. Business Tenants (Multi-tenant organizations)
@@ -186,69 +193,7 @@ export async function initDatabase() {
     )
   `);
 
-  // 10. WhatsApp Threads (tenant-scoped)
-  await d.exec(`
-    CREATE TABLE IF NOT EXISTS wa_threads (
-      id TEXT PRIMARY KEY,
-      payload TEXT NOT NULL,
-      version INTEGER NOT NULL DEFAULT 1,
-      updated INTEGER NOT NULL DEFAULT 0,
-      tenant_id TEXT NOT NULL DEFAULT 'biz_titan_watches'
-    )
-  `);
-  await d.exec(`CREATE INDEX IF NOT EXISTS idx_wa_threads_tenant ON wa_threads(tenant_id, updated DESC)`);
-
-  // 11. WhatsApp Jobs (tenant-scoped)
-  await d.exec(`
-    CREATE TABLE IF NOT EXISTS wa_jobs (
-      id TEXT PRIMARY KEY,
-      thread_id TEXT NOT NULL,
-      payload TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'pending',
-      attempts INTEGER NOT NULL DEFAULT 0,
-      created INTEGER NOT NULL,
-      tenant_id TEXT NOT NULL DEFAULT 'biz_titan_watches'
-    )
-  `);
-  await d.exec(`CREATE INDEX IF NOT EXISTS idx_wa_jobs_tenant ON wa_jobs(tenant_id, status)`);
-
-  // 12. WhatsApp Activity Audit Log (tenant-scoped)
-  await d.exec(`
-    CREATE TABLE IF NOT EXISTS wa_activity (
-      id TEXT PRIMARY KEY,
-      kind TEXT NOT NULL,
-      message TEXT NOT NULL,
-      created INTEGER NOT NULL,
-      tenant_id TEXT NOT NULL DEFAULT 'biz_titan_watches'
-    )
-  `);
-  await d.exec(`CREATE INDEX IF NOT EXISTS idx_wa_activity_tenant ON wa_activity(tenant_id, created DESC)`);
-
-  // 13. WhatsApp Customers (tenant-scoped)
-  await d.exec(`
-    CREATE TABLE IF NOT EXISTS wa_customers (
-      phone TEXT PRIMARY KEY,
-      payload TEXT NOT NULL,
-      updated INTEGER NOT NULL DEFAULT 0,
-      tenant_id TEXT NOT NULL DEFAULT 'biz_titan_watches'
-    )
-  `);
-  await d.exec(`CREATE INDEX IF NOT EXISTS idx_wa_customers_tenant ON wa_customers(tenant_id, phone)`);
-
-  // 14. WhatsApp Orders (tenant-scoped)
-  await d.exec(`
-    CREATE TABLE IF NOT EXISTS wa_orders (
-      id TEXT PRIMARY KEY,
-      thread_id TEXT NOT NULL,
-      phone TEXT NOT NULL,
-      payload TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'confirmed',
-      created INTEGER NOT NULL,
-      updated INTEGER NOT NULL,
-      tenant_id TEXT NOT NULL DEFAULT 'biz_titan_watches'
-    )
-  `);
-  await d.exec(`CREATE INDEX IF NOT EXISTS idx_wa_orders_tenant ON wa_orders(tenant_id, created DESC)`);
+  await migrateTenantTables(d);
 
   // 15. Encrypted secrets table
   await d.exec(`
@@ -257,21 +202,6 @@ export async function initDatabase() {
       cipher TEXT NOT NULL
     )
   `);
-
-  // ── Database Schema Migration & Backwards-Compatibility ────────────────
-  // Ensure tenant_id column exists on pre-existing tables
-  const tablesWithTenant = ['wa_threads', 'wa_jobs', 'wa_activity', 'wa_customers', 'wa_orders'];
-  for (const table of tablesWithTenant) {
-    try {
-      const info = await d.prepare(`PRAGMA table_info("${table}")`).all<{ name: string }>();
-      const colNames = (info?.results || []).map((r) => r.name);
-      if (!colNames.includes('tenant_id')) {
-        await d.exec(`ALTER TABLE "${table}" ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'biz_titan_watches'`);
-      }
-    } catch (e: any) {
-      console.warn(`[DB Migration] Notice on ${table}:`, e?.message);
-    }
-  }
 
   // ── Seed Master Tenant & Initial Account (Titan Watches) ───────────────
   try {
@@ -381,17 +311,31 @@ export async function secret(key: string): Promise<string | null> {
 
 // ── Settings ────────────────────────────────────────────────────────────
 
+export function freshBusinessSettings(name = 'My business'): WASettings {
+  return {...structuredClone(waDefaults),enabled:false,businessName:name,industry:'',businessDescription:'',tagline:'',website:'',storeAddress:'',supportEmail:'',supportPhone:'',discountCode:'',discountOffer:'',shippingPolicy:'',warrantyPolicy:'',returnPolicy:'',paymentMethods:'',catalog:[],quickReplies:[],autoReplyRules:[],escalationRules:[],instructions:'',knowledge:'',examples:[],welcomeMessage:'Welcome! How can we help?',awayMessage:'We will respond during business hours.',closingMessage:'Thank you for contacting us.',profile:{name:'Support',role:'Customer support',bio:'',denyAi:false,gender:'neutral'}};
+}
 export async function settings(tenantId: string = 'biz_titan_watches'): Promise<WASettings> {
-  try {
-    const row = await db()
-      .prepare('SELECT payload FROM tenant_settings WHERE tenant_id = ?')
-      .bind(tenantId)
-      .first<{ payload: string }>();
-    if (row?.payload) {
-      return { ...waDefaults, ...JSON.parse(row.payload) };
-    }
-  } catch {}
-  return { ...waDefaults, ...(await readState<WASettings>('wa_settings', waDefaults)) };
+  const row = await db().prepare('SELECT payload FROM tenant_settings WHERE tenant_id=?').bind(tenantId).first<{payload:string}>();
+  if (row) return {...freshBusinessSettings(),...JSON.parse(row.payload)};
+  if (tenantId === 'biz_titan_watches') return {...waDefaults,...await readState<WASettings>('wa_settings',waDefaults)};
+  return freshBusinessSettings();
+}
+export async function assertActiveTenant(tenantId: string) {
+  const tenant = await db().prepare('SELECT status FROM business_tenants WHERE id=?').bind(tenantId).first<{status:string}>();
+  if (!tenant || tenant.status !== 'active') throw new AppError('Business is unavailable or suspended.',403);
+}
+
+export async function saveTenantSecret(tenantId: string,key: string,value: string) {
+  const iv=crypto.getRandomValues(new Uint8Array(12));
+  const encrypted=new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM',iv,additionalData:new TextEncoder().encode(tenantId+':'+key)},await encryptionKey(),new TextEncoder().encode(value)));
+  await db().prepare('INSERT INTO tenant_credentials(tenant_id,key,cipher,updated_at) VALUES (?,?,?,?) ON CONFLICT(tenant_id,key) DO UPDATE SET cipher=excluded.cipher,updated_at=excluded.updated_at')
+    .bind(tenantId,key,JSON.stringify({iv:Array.from(iv),data:Array.from(encrypted)}),Date.now()).run();
+}
+export async function tenantSecret(tenantId: string,key: string): Promise<string|null> {
+  const row=await db().prepare('SELECT cipher FROM tenant_credentials WHERE tenant_id=? AND key=?').bind(tenantId,key).first<{cipher:string}>();
+  if (!row) return secret(key+'_'+tenantId); // Upgrade keys that were already explicitly scoped.
+  const c=JSON.parse(row.cipher);
+  return new TextDecoder().decode(await crypto.subtle.decrypt({name:'AES-GCM',iv:new Uint8Array(c.iv),additionalData:new TextEncoder().encode(tenantId+':'+key)},await encryptionKey(),new Uint8Array(c.data)));
 }
 
 export async function saveSettings(s: WASettings, tenantId: string = 'biz_titan_watches'): Promise<void> {
@@ -432,7 +376,7 @@ export async function getCustomerProfile(phone: string, tenantId: string = 'biz_
 export async function saveCustomerProfile(profile: CustomerProfile, tenantId: string = 'biz_titan_watches') {
   await db()
     .prepare(
-      'INSERT INTO wa_customers (phone,payload,updated,tenant_id) VALUES (?,?,?,?) ON CONFLICT(phone) DO UPDATE SET payload=excluded.payload,updated=excluded.updated,tenant_id=excluded.tenant_id'
+      'INSERT INTO wa_customers (phone,payload,updated,tenant_id) VALUES (?,?,?,?) ON CONFLICT(tenant_id,phone) DO UPDATE SET payload=excluded.payload,updated=excluded.updated'
     )
     .bind(profile.phone, JSON.stringify(profile), Date.now(), tenantId)
     .run();
@@ -473,18 +417,21 @@ export async function saveThread(t: WAThread, tenantId: string = 'biz_titan_watc
   const version = t.version ?? 0;
   const payload = JSON.stringify({ ...t, version: undefined, updated: Date.now() });
   if (version === 0) {
-    await db()
+    const inserted = await db()
       .prepare(
         'INSERT OR IGNORE INTO wa_threads (id,payload,version,updated,tenant_id) VALUES (?,?,1,?,?)'
       )
       .bind(t.id, payload, Date.now(), tenantId)
       .run();
+    if (!inserted.meta.changes) throw new AppError('Conversation changed. Refresh and try again.',409);
+    t.version = 1;
   } else {
     const result = await db()
       .prepare('UPDATE wa_threads SET payload=?,version=version+1,updated=? WHERE id=? AND version=? AND tenant_id=?')
       .bind(payload, Date.now(), t.id, version, tenantId)
       .run();
     if (!result.meta.changes) throw new AppError('Conversation changed. Refresh and try again.', 409);
+    t.version = version + 1;
   }
 }
 
@@ -497,12 +444,6 @@ export async function allThreads(tenantId: string = 'biz_titan_watches'): Promis
   ).results;
   return rows.map((r) => {
     const thread = { ...JSON.parse(r.payload), version: r.version } as WAThread;
-    if (thread.deliveryLocation?.raw && /mohommadiya|mohammadiya|shanthinagar|shantinagar/i.test(thread.deliveryLocation.raw)) {
-      thread.deliveryLocation.lat = 12.3297;
-      thread.deliveryLocation.lng = 76.6792;
-      thread.deliveryLocation.pincode = thread.deliveryLocation.pincode || '570019';
-      thread.deliveryLocation.city = 'Mysuru';
-    }
     return thread;
   });
 }
@@ -544,12 +485,6 @@ export async function reconcileOrdersWithThreads(tenantId: string = 'biz_titan_w
       const parsedOrders = extractOrdersFromThread(thread.messages, s.catalog || []);
 
       const loc = thread.deliveryLocation;
-      if (loc?.raw && /mohommadiya|mohammadiya|shanthinagar|shantinagar/i.test(loc.raw)) {
-        loc.lat = 12.3297;
-        loc.lng = 76.6792;
-        loc.pincode = loc.pincode || '570019';
-        loc.city = 'Mysuru';
-      }
       const isReady = !!(loc && loc.pincode && !loc.pincodeMissing);
       const isUpi = /upi|online|prepaid/i.test(fullChat);
 
@@ -597,7 +532,7 @@ export async function reconcileOrdersWithThreads(tenantId: string = 'biz_titan_w
         }
 
         // New distinct confirmed order!
-        const orderNum = Math.floor(1000 + Math.random() * 9000);
+        const orderNum = crypto.randomUUID();
         const newOrder: WAOrder = {
           id: `ORD-${orderNum}`,
           threadId: thread.id,
@@ -646,12 +581,6 @@ export async function allOrders(tenantId: string = 'biz_titan_watches'): Promise
 
   const rawOrders = rows.map((r) => {
     const order = JSON.parse(r.payload) as WAOrder;
-    if (order.deliveryLocation?.raw && /mohommadiya|mohammadiya|shanthinagar|shantinagar/i.test(order.deliveryLocation.raw)) {
-      order.deliveryLocation.lat = 12.3297;
-      order.deliveryLocation.lng = 76.6792;
-      order.deliveryLocation.pincode = order.deliveryLocation.pincode || '570019';
-      order.deliveryLocation.city = 'Mysuru';
-    }
     return order;
   });
 
@@ -703,7 +632,7 @@ export async function getOrder(id: string, tenantId: string = 'biz_titan_watches
 export async function saveOrder(order: WAOrder, tenantId: string = 'biz_titan_watches'): Promise<void> {
   await db()
     .prepare(
-      'INSERT INTO wa_orders (id,thread_id,phone,payload,status,created,updated,tenant_id) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload,status=excluded.status,updated=excluded.updated,tenant_id=excluded.tenant_id'
+      'INSERT INTO wa_orders (id,thread_id,phone,payload,status,created,updated,tenant_id) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(tenant_id,id) DO UPDATE SET thread_id=excluded.thread_id,phone=excluded.phone,payload=excluded.payload,status=excluded.status,updated=excluded.updated'
     )
     .bind(
       order.id,
@@ -728,7 +657,7 @@ export async function getAllTenants(): Promise<RegisteredBusiness[]> {
   const d = db();
   const rows = (
     await d
-      .prepare('SELECT * FROM business_tenants ORDER BY created_at ASC')
+      .prepare("SELECT * FROM business_tenants WHERE status!='deleted' ORDER BY created_at ASC")
       .all<any>()
   ).results || [];
 
@@ -783,30 +712,22 @@ export async function getTenant(tenantId: string): Promise<RegisteredBusiness | 
   };
 }
 
-export async function updateBusinessTenantStatus(tenantId: string, status: 'active' | 'suspended'): Promise<void> {
-  await db()
-    .prepare('UPDATE business_tenants SET status = ?, updated_at = ? WHERE id = ?')
-    .bind(status, Date.now(), tenantId)
-    .run();
-}
-
-export async function deleteBusinessTenant(tenantId: string): Promise<void> {
-  if (tenantId === 'biz_titan_watches') {
-    throw new AppError('Cannot delete primary master tenant (Titan Watches).', 400);
+export async function updateBusinessTenantStatus(tenantId: string,status:'active'|'suspended') {
+  await db().transaction(async tx=>{
+    const changed=await tx.prepare("UPDATE business_tenants SET status=?,updated_at=? WHERE id=? AND status!='deleted'").bind(status,Date.now(),tenantId).run();
+    if(!changed.meta.changes) throw new AppError('Business not found.',404);
+    if(status==='suspended') await tx.prepare('UPDATE auth_sessions SET revoked_at=? WHERE tenant_id=?').bind(Date.now(),tenantId).run();
+  });
+  if(status==='suspended') {
+    const {getWhatsAppClient}=await import('./whatsapp-client');
+    await getWhatsAppClient(tenantId).disconnect();
   }
-  const d = db();
-  await Promise.all([
-    d.prepare('DELETE FROM business_tenants WHERE id = ?').bind(tenantId).run(),
-    d.prepare('DELETE FROM business_users WHERE tenant_id = ?').bind(tenantId).run(),
-    d.prepare('DELETE FROM auth_sessions WHERE tenant_id = ?').bind(tenantId).run(),
-    d.prepare('DELETE FROM tenant_settings WHERE tenant_id = ?').bind(tenantId).run(),
-    d.prepare('DELETE FROM tenant_connections WHERE tenant_id = ?').bind(tenantId).run(),
-    d.prepare('DELETE FROM wa_threads WHERE tenant_id = ?').bind(tenantId).run(),
-    d.prepare('DELETE FROM wa_orders WHERE tenant_id = ?').bind(tenantId).run(),
-    d.prepare('DELETE FROM wa_customers WHERE tenant_id = ?').bind(tenantId).run(),
-    d.prepare('DELETE FROM wa_jobs WHERE tenant_id = ?').bind(tenantId).run(),
-    d.prepare('DELETE FROM wa_activity WHERE tenant_id = ?').bind(tenantId).run(),
-  ]);
+}
+export async function deleteBusinessTenant(tenantId:string) {
+  if(tenantId==='biz_titan_watches') throw new AppError('Cannot delete primary master tenant.',400);
+  await updateBusinessTenantStatus(tenantId,'suspended');
+  // Retain history and the audit trail; prevent old tokens or workers from resurrecting a deleted tenant.
+  await db().prepare("UPDATE business_tenants SET status='deleted',updated_at=? WHERE id=?").bind(Date.now(),tenantId).run();
 }
 
 // ── Turso DB Storage & Health Monitor ───────────────────────────────────
@@ -880,7 +801,10 @@ export async function getTursoStats(): Promise<TursoUsageStats> {
 
 // ── Provider Selection (reads from shared encrypted_secrets & workspace_state)
 
-export async function providerConnections(): Promise<ProviderConnection[]> {
+export async function providerConnections(tenantId: string = 'biz_titan_watches'): Promise<ProviderConnection[]> {
+  const ownKey = await tenantSecret(tenantId,'groq_key');
+  if (ownKey) return [{id:'tenant-groq',label:'Business AI',provider:'groq',model:(await settings(tenantId)).model,verified:true}];
+  if (tenantId !== 'biz_titan_watches') return [];
   // 1. Read shared providers from Instagram's workspace_state (key: 'ai_providers')
   let sharedProviders: ProviderConnection[] = [];
   try {
@@ -918,8 +842,8 @@ export async function providerConnections(): Promise<ProviderConnection[]> {
   return [...sharedProviders, ...waProviders, ...legacyList];
 }
 
-export async function selectedProvider(preferredId?: string): Promise<ProviderConnection | undefined> {
-  const providers = await providerConnections();
+export async function selectedProvider(preferredId?: string, tenantId: string = 'biz_titan_watches'): Promise<ProviderConnection | undefined> {
+  const providers = await providerConnections(tenantId);
   if (preferredId) {
     const preferred = providers.find((p) => p.id === preferredId && p.verified);
     if (preferred) return preferred;
@@ -943,6 +867,7 @@ export function providerSecretId(id: string): string {
 // ── AI Reply Generation ─────────────────────────────────────────────────
 
 export async function generateReply(thread: WAThread, tenantId: string = 'biz_titan_watches'): Promise<string> {
+  await assertActiveTenant(tenantId);
   const s = await settings(tenantId);
   const latestMsg = thread.messages.filter((m) => m.role === 'incoming').at(-1);
   if (!latestMsg) throw new AppError('No message to reply to.');
@@ -964,10 +889,10 @@ export async function generateReply(thread: WAThread, tenantId: string = 'biz_ti
   const messages = buildConversationMessages(systemPrompt, thread);
 
   // Get provider
-  const provider = await selectedProvider();
+  const provider = await selectedProvider(undefined,tenantId);
   if (!provider) throw new AppError('No AI provider configured.', 412);
 
-  const apiKey = await secret(providerSecretId(provider.id));
+  const apiKey = provider.id === 'tenant-groq' ? await tenantSecret(tenantId,'groq_key') : await secret(providerSecretId(provider.id));
   if (!apiKey) throw new AppError('AI provider key not found.', 412);
 
   const config = providerConfig[provider.provider];
@@ -998,6 +923,7 @@ export async function generateReply(thread: WAThread, tenantId: string = 'biz_ti
     });
     if (!response.ok) throw new AppError(`Provider error (${response.status})`, 502);
     const data: any = await response.json();
+    await db().prepare('INSERT INTO tenant_usage(tenant_id,calls,tokens,updated_at) VALUES (?,1,?,?) ON CONFLICT(tenant_id) DO UPDATE SET calls=calls+1,tokens=tokens+excluded.tokens,updated_at=excluded.updated_at').bind(tenantId,Number(data.usage?.total_tokens)||0,Date.now()).run();
     let reply = data.choices?.[0]?.message?.content?.trim() || '';
 
     // Retry if generic refusal
@@ -1042,17 +968,18 @@ export type AIConfirmationFeedback = {
 
 export async function queryAIConfirmationFeedback(
   thread: WAThread,
-  latestMessage: string
+  latestMessage: string,
+  tenantId: string = 'biz_titan_watches'
 ): Promise<AIConfirmationFeedback> {
   try {
     const isAffirmativeRegex = /^(yes|yep|yeah|sure|confirm|proceed|ok|okay|haan|ha|bilkul|kar do|place order|done|book it)\b/i.test((latestMessage || '').trim());
 
-    const provider = await selectedProvider();
+    const provider = await selectedProvider(undefined,tenantId);
     if (!provider) {
       return { isConfirmed: isAffirmativeRegex, reason: 'Provider fallback: regex affirmative check' };
     }
 
-    const apiKey = await secret(providerSecretId(provider.id));
+    const apiKey = provider.id === 'tenant-groq' ? await tenantSecret(tenantId,'groq_key') : await secret(providerSecretId(provider.id));
     if (!apiKey) {
       return { isConfirmed: isAffirmativeRegex, reason: 'API key fallback: regex affirmative check' };
     }
@@ -1143,17 +1070,26 @@ export async function sendWhatsAppMessage(
   text: string,
   tenantId: string = 'biz_titan_watches'
 ): Promise<{ messageId: string }> {
-  // Dynamic import to avoid issues with SSR
+  await assertActiveTenant(tenantId);
+  const conn=await db().prepare('SELECT provider,phone_number_id FROM tenant_connections WHERE tenant_id=?').bind(tenantId).first<{provider:string;phone_number_id:string}>();
+  if(conn?.provider==='cloud') {
+    const token=await tenantSecret(tenantId,'wa_access_token');
+    if(!token) throw new AppError('WhatsApp access token is missing.',412);
+    const version=(await settings(tenantId)).graphVersion || 'v21.0';
+    const response=await fetch('https://graph.facebook.com/'+version+'/'+conn.phone_number_id+'/messages',{
+      method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},
+      body:JSON.stringify({messaging_product:'whatsapp',to:targetJidOrPhone.replace(/@.*$/,'').replace(/[^0-9]/g,''),type:'text',text:{body:text}}),
+      signal:AbortSignal.timeout(30000)
+    });
+    if(!response.ok) throw new AppError('WhatsApp delivery failed. Verify provider delivery status before retrying.',502);
+    const data:any=await response.json();
+    if(!data.messages?.[0]?.id) throw new AppError('WhatsApp delivery status is uncertain.',502);
+    return {messageId:data.messages[0].id};
+  }
   const { getWhatsAppClient } = await import('./whatsapp-client');
   const client = getWhatsAppClient(tenantId);
-
-  if (!client.isConnected()) {
-    console.error(`[WA] Cannot send message: client for ${tenantId} is not connected!`);
-    throw new AppError('WhatsApp not connected. Scan QR code first.', 412);
-  }
-
-  const messageId = await client.sendMessage(targetJidOrPhone, text);
-  return { messageId };
+  if (!client.isConnected()) throw new AppError('WhatsApp not connected. Scan QR code first.',412);
+  return {messageId:await client.sendMessage(targetJidOrPhone,text)};
 }
 
 export async function sendReply(thread: WAThread, text: string, tenantId: string = 'biz_titan_watches'): Promise<void> {
@@ -1161,15 +1097,36 @@ export async function sendReply(thread: WAThread, text: string, tenantId: string
 
   const target = thread.recipientId || thread.phone;
   console.log(`[WA] sendReply invoked for ${thread.name} (${target}) [${tenantId}]: "${text.slice(0, 40)}..."`);
-  const { messageId } = await sendWhatsAppMessage(target, text, tenantId);
+  await assertActiveTenant(tenantId);
+  const fingerprint=JSON.stringify([thread.id,thread.messages.filter(m=>m.role==='incoming').at(-1)?.id || thread.lastInbound,text]);
+  const deliveryId=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(fingerprint)))).map(b=>b.toString(16).padStart(2,'0')).join('');
+  const reservation=await db().prepare("INSERT OR IGNORE INTO outbound_deliveries(tenant_id,id,status,created) VALUES (?,?,'sending',?)").bind(tenantId,deliveryId,Date.now()).run();
+  let messageId:string;
+  if(!reservation.meta.changes) {
+    const previous=await db().prepare('SELECT status,message_id FROM outbound_deliveries WHERE tenant_id=? AND id=?').bind(tenantId,deliveryId).first<{status:string;message_id:string}>();
+    if(previous?.status!=='sent') throw new AppError('Delivery is uncertain. Check WhatsApp before sending again.',409);
+    messageId=previous.message_id;
+  } else {
+    try {
+      ({messageId}=await sendWhatsAppMessage(target,text,tenantId));
+      await db().prepare("UPDATE outbound_deliveries SET status='sent',message_id=? WHERE tenant_id=? AND id=?").bind(messageId,tenantId,deliveryId).run();
+      await db().prepare('INSERT INTO tenant_usage(tenant_id,sent,updated_at) VALUES (?,1,?) ON CONFLICT(tenant_id) DO UPDATE SET sent=sent+1,updated_at=excluded.updated_at').bind(tenantId,Date.now()).run();
+    } catch(error) {
+      await db().prepare("UPDATE outbound_deliveries SET status='uncertain' WHERE tenant_id=? AND id=?").bind(tenantId,deliveryId).run();
+      thread.status='review'; thread.draft=text; thread.flagged='Delivery uncertain — check WhatsApp before sending again.';
+      await saveThread(thread,tenantId);
+      throw error;
+    }
+  }
 
-  thread.messages.push({
+  if (!thread.messages.some(m=>m.id===messageId)) thread.messages.push({
     id: messageId || crypto.randomUUID(),
     role: 'outgoing',
     text,
     at: Date.now(),
   });
   thread.status = 'resolved';
+  thread.draft = '';
   thread.updated = Date.now();
 
   // Update customer profile
@@ -1183,39 +1140,23 @@ export async function sendReply(thread: WAThread, text: string, tenantId: string
 
 // ── Connection Status ───────────────────────────────────────────────────
 
-export async function connectionStatus(): Promise<WAConnections> {
-  const keys = (
-    await db().prepare('SELECT key FROM encrypted_secrets').all<{ key: string }>()
-  ).results.map((r) => r.key);
-
-  const providers = await providerConnections();
-  const c = await readState<any>('wa_connection', {});
-
-  return {
-    providers,
-    primaryProviderId: await readState<string>('wa_primary_provider', 'shared-groq'),
-    whatsappSaved: keys.includes('wa_access_token'),
-    whatsappVerified: !!c.verified,
-    aiSaved: providers.length > 0,
-    aiVerified: providers.some((p) => p.verified),
-    phoneNumberId: c.phoneNumberId,
-    businessAccountId: c.businessAccountId,
-    displayPhoneNumber: c.displayPhoneNumber,
-    webhookVerifiedAt: c.webhookVerifiedAt,
-    lastEvent: c.lastEvent,
-    receiverSeen: !!c.lastEvent,
-  };
+export async function connectionStatus(tenantId: string = 'biz_titan_watches'): Promise<WAConnections> {
+  const providers = await providerConnections(tenantId);
+  const conn = await db().prepare('SELECT * FROM tenant_connections WHERE tenant_id=?').bind(tenantId).first<any>();
+  const {getWhatsAppClient} = await import('./whatsapp-client');
+  const client = getWhatsAppClient(tenantId);
+  return {providers,primaryProviderId:providers[0]?.id || '',whatsappSaved:!!conn?.phone_number_id || client.isConnected(),whatsappVerified:client.isConnected() || !!conn?.phone_number_id,aiSaved:providers.length>0,aiVerified:providers.some(p=>p.verified),phoneNumberId:conn?.phone_number_id,displayPhoneNumber:client.getConnectedPhone() || conn?.display_phone_number,receiverSeen:!!conn?.webhook_verified_at,webhookVerifiedAt:conn?.webhook_verified_at};
 }
 
 // ── Error Handler ───────────────────────────────────────────────────────
 
 export function errorResponse(e: unknown) {
-  if (e instanceof AppError) {
+  if (e instanceof AppError || e instanceof RequestError) {
     return Response.json({ error: e.message }, { status: e.status });
   }
   const message = e instanceof Error ? e.message : 'Unknown error';
   console.error('WhatsApp operation failed:', message);
-  return Response.json({ error: message || 'Operation failed. Please try again.' }, { status: 500 });
+  return Response.json({ error: 'Operation failed. Please try again.' }, { status: 500 });
 }
 
 // ── Analytics ───────────────────────────────────────────────────────────

@@ -123,7 +123,7 @@ function forwardRequest(req, res, target, isRetry = false) {
 
   proxyReq.on('error', (err) => {
     if (res.headersSent) return;
-    if (!isRetry && (req.method === 'GET' || req.method === 'HEAD')) {
+    if (!isRetry && req.url?.startsWith('/_next/static/') && (req.method === 'GET' || req.method === 'HEAD')) {
       const altPort = target.port === whatsappPort ? instagramPort : whatsappPort;
       forwardRequest(req, res, { host: '127.0.0.1', port: altPort }, true);
       return;

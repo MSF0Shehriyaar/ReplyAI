@@ -7,48 +7,28 @@ import {
   errorResponse,
   audit,
   saveSettings,
+  freshBusinessSettings,
 } from '@/lib/server';
 import {
   hashPassword,
   createAuthSession,
   revokeSession,
   getAuthSession,
+  requireMasterAdmin,
   SESSION_COOKIE_NAME,
 } from '@/lib/auth';
-import { waDefaults } from '@/lib/model';
+import { z } from 'zod';
+import { requireOrigin, readJSON } from '@/lib/request-security';
+import { consumeRateLimit } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
 
-// In-memory rate limiter for login/register attempts
-const loginAttempts = new Map<string, { count: number; lockedUntil: number }>();
-
-function checkRateLimit(ip: string): void {
-  const now = Date.now();
-  const entry = loginAttempts.get(ip);
-  if (entry) {
-    if (entry.lockedUntil > now) {
-      const waitMinutes = Math.ceil((entry.lockedUntil - now) / 60000);
-      throw new AppError(`Too many failed attempts. Try again in ${waitMinutes} minute(s).`, 429);
-    }
-    if (now - entry.lockedUntil > 300000) {
-      loginAttempts.delete(ip);
-    }
-  }
-}
-
-function recordFailedAttempt(ip: string): void {
-  const now = Date.now();
-  const entry = loginAttempts.get(ip) || { count: 0, lockedUntil: 0 };
-  entry.count++;
-  if (entry.count >= 5) {
-    entry.lockedUntil = now + 15 * 60 * 1000; // 15-minute lock
-  }
-  loginAttempts.set(ip, entry);
-}
-
-function clearRateLimit(ip: string): void {
-  loginAttempts.delete(ip);
-}
+const authSchema = z.discriminatedUnion('action',[
+  z.object({action:z.literal('login'),email:z.string().email().max(254),password:z.string().min(1).max(256)}).strict(),
+  z.object({action:z.literal('register'),businessName:z.string().trim().min(2).max(160),ownerName:z.string().trim().min(2).max(160),email:z.string().email().max(254),password:z.string().min(12).max(256),phone:z.string().max(40).optional(),category:z.string().max(160).optional(),tagline:z.string().max(500).optional(),themeColor:z.string().regex(/^#[a-fA-F0-9]{6}$/).optional()}).strict(),
+  z.object({action:z.literal('create-business'),businessName:z.string().trim().min(2).max(160),ownerName:z.string().trim().min(2).max(160),email:z.string().email().max(254),password:z.string().min(12).max(256),phone:z.string().max(40).optional(),category:z.string().max(160).optional(),tagline:z.string().max(500).optional(),themeColor:z.string().regex(/^#[a-fA-F0-9]{6}$/).optional()}).strict(),
+  z.object({action:z.literal('logout')}).strict(),
+]);
 
 // GET — Current authenticated user & tenant session
 export async function GET(request: NextRequest) {
@@ -91,16 +71,20 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     await initDatabase();
-    const body = await request.json().catch(() => ({}));
+    requireOrigin(request);
+    const parsed=authSchema.safeParse(await readJSON(request,8192));
+    if (!parsed.success) throw new AppError('Check the sign-in or registration fields. Passwords must have at least 12 characters.',400);
+    const body:any=parsed.data;
     const action = String(body.action || '').trim().toLowerCase();
     const ip = request.headers.get('x-forwarded-for')?.split(',')[0].trim() || '127.0.0.1';
 
     // ── ACTION: LOGIN ─────────────────────────────────────────────────────
     if (action === 'login') {
-      checkRateLimit(ip);
+      await consumeRateLimit('auth-ip:'+ip,30,15*60000);
+      await consumeRateLimit('login:'+String(body.email).toLowerCase(),10,15*60000);
 
       const email = String(body.email || '').trim().toLowerCase();
-      const password = String(body.password || '').trim();
+      const password = String(body.password || '');
 
       if (!email || !password) {
         throw new AppError('Email and password are required.', 400);
@@ -113,7 +97,7 @@ export async function POST(request: NextRequest) {
         .first<any>();
 
       if (!user) {
-        recordFailedAttempt(ip);
+        await audit('Login failed','Business sign-in rejected');
         throw new AppError('Invalid credentials.', 401);
       }
 
@@ -128,19 +112,19 @@ export async function POST(request: NextRequest) {
           .bind(user.tenant_id)
           .first<{ status: string; name: string }>();
 
-        if (tenant && tenant.status === 'suspended') {
-          throw new AppError(`Your business account '${tenant.name}' is currently suspended. Contact administrator.`, 403);
+        if (!tenant || tenant.status !== 'active') {
+          throw new AppError(`Your business account '${tenant?.name || 'Unavailable'}' is currently suspended. Contact administrator.`, 403);
         }
       }
 
       // Verify password hash
       const computedHash = await hashPassword(password, user.salt);
       if (computedHash !== user.password_hash) {
-        recordFailedAttempt(ip);
+        await audit('Login failed','Business sign-in rejected');
         throw new AppError('Invalid credentials.', 401);
       }
 
-      clearRateLimit(ip);
+
 
       // Create session
       const { token, session } = await createAuthSession(
@@ -183,8 +167,10 @@ export async function POST(request: NextRequest) {
     }
 
     // ── ACTION: REGISTER (Free business onboarding) ───────────────────────
-    if (action === 'register') {
-      checkRateLimit(ip);
+    if (action === 'register' || action === 'create-business') {
+      if(action==='create-business') await requireMasterAdmin(request);
+      await consumeRateLimit('auth-ip:'+ip,30,15*60000);
+      await consumeRateLimit(action+':'+String(body.email).toLowerCase(),action==='register'?3:10,15*60000);
 
       const businessName = String(body.businessName || '').trim();
       const ownerName = String(body.ownerName || '').trim();
@@ -204,8 +190,8 @@ export async function POST(request: NextRequest) {
       if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
         throw new AppError('Valid email address is required.', 400);
       }
-      if (!password || password.length < 8) {
-        throw new AppError('Password must be at least 8 characters long.', 400);
+      if (!password || password.length < 12) {
+        throw new AppError('Password must be at least 12 characters long.', 400);
       }
 
       const d = db();
@@ -225,62 +211,19 @@ export async function POST(request: NextRequest) {
 
       const now = Date.now();
 
-      // 1. Create business tenant
-      await d
-        .prepare(
-          `INSERT INTO business_tenants (id, name, owner_name, owner_email, phone, category, tagline, theme_color, status, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`
-        )
-        .bind(
-          tenantId,
-          businessName,
-          ownerName,
-          email,
-          phone || null,
-          category,
-          tagline,
-          themeColor,
-          now,
-          now
-        )
-        .run();
-
-      // 2. Create business user (business_admin)
       const salt = crypto.randomUUID();
-      const passwordHash = await hashPassword(password, salt);
+      const passwordHash = await hashPassword(password,salt);
       const userId = crypto.randomUUID();
+      await d.transaction(async tx => {
+        await tx.prepare("INSERT INTO business_tenants(id,name,owner_name,owner_email,phone,category,tagline,theme_color,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,'active',?,?)")
+          .bind(tenantId,businessName,ownerName,email,phone,category,tagline,themeColor,now,now).run();
+        await tx.prepare("INSERT INTO business_users(id,tenant_id,email,password_hash,salt,name,role,status,created_at,updated_at) VALUES (?,?,?,?,?,?,'business_admin','active',?,?)")
+          .bind(userId,tenantId,email,passwordHash,salt,ownerName,now,now).run();
+        const settings = {...freshBusinessSettings(businessName),tagline,category,industry:category,supportEmail:email,supportPhone:phone};
+        await tx.prepare('INSERT INTO tenant_settings(tenant_id,payload,updated_at) VALUES (?,?,?)').bind(tenantId,JSON.stringify(settings),now).run();
+      });
 
-      await d
-        .prepare(
-          `INSERT INTO business_users (id, tenant_id, email, password_hash, salt, name, role, status, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, 'business_admin', 'active', ?, ?)`
-        )
-        .bind(
-          userId,
-          tenantId,
-          email,
-          passwordHash,
-          salt,
-          ownerName,
-          now,
-          now
-        )
-        .run();
-
-      // 3. Initialize custom settings for this new business
-      await saveSettings(
-        {
-          ...waDefaults,
-          businessName,
-          tagline,
-          category,
-          industry: category,
-          supportEmail: email,
-          supportPhone: phone,
-          catalog: [],
-        },
-        tenantId
-      );
+      if(action==='create-business') { await audit('Business created','Master admin created '+businessName,tenantId); return NextResponse.json({ok:true,tenantId}); }
 
       // 4. Create active session
       const { token, session } = await createAuthSession(
@@ -332,7 +275,20 @@ export async function POST(request: NextRequest) {
         await audit('User logout', `Logged out: ${session.email}`, session.tenantId);
       }
 
+      const ownerToken=request.cookies.get('nina_owner_session')?.value;
+      if (ownerToken && session?.role==='master_admin') {
+        const payload=JSON.parse(atob(ownerToken.split('.')[0]));
+        await db().prepare('UPDATE workspace_state SET payload=? WHERE key=?').bind(JSON.stringify({revokedAt:Date.now()}),'owner_session:'+payload.jti).run();
+      }
+      // Revoke a business cookie too if both identities were present.
+      const businessToken=request.cookies.get(SESSION_COOKIE_NAME)?.value;
+      if (businessToken) {
+        const {verifySessionToken}=await import('@/lib/auth');
+        const business=await verifySessionToken(businessToken);
+        if(business) await revokeSession(business.jti);
+      }
       const res = NextResponse.json({ ok: true });
+      res.cookies.delete('nina_owner_session');
       res.cookies.set(SESSION_COOKIE_NAME, '', {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',

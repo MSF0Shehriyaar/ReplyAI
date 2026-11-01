@@ -93,7 +93,10 @@ export async function verifySessionSignature(token: string): Promise<SessionPayl
     const jsonStr = Buffer.from(payloadB64, 'base64url').toString('utf8');
     const data = JSON.parse(jsonStr) as SessionPayload;
 
-    if (!data.jti || !data.userId || !data.role || !data.exp) return null;
+    if (typeof data.jti !== 'string' || typeof data.userId !== 'string' ||
+        !['business_admin','business_operator'].includes(data.role) ||
+        typeof data.tenantId !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(data.tenantId) ||
+        !Number.isFinite(data.exp) || !Number.isFinite(data.iat)) return null;
     if (Date.now() >= data.exp) return null;
 
     return data;

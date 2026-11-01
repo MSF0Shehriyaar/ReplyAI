@@ -1,123 +1,24 @@
 // ─── WhatsApp Multi-Tenant Authentication & Authorization ────────────────
 import { db, AppError, audit } from './server.ts';
-import { validOwnerSession } from '../../instagram/lib/owner-session.ts';
+import { validStoredOwnerSession } from '../../instagram/lib/owner-session.ts';
 
-export type UserRole = 'master_admin' | 'business_admin' | 'business_operator';
-
-export type SessionPayload = {
-  jti: string;
-  userId: string;
-  email: string;
-  name: string;
-  role: UserRole;
-  tenantId: string; // 'biz_titan_watches' or registered tenant id
-  iat: number;
-  exp: number;
-};
-
-export const SESSION_COOKIE_NAME = 'wa_session';
-export const OWNER_COOKIE_NAME = 'nina_owner_session';
-
-function getSigningKey(): string {
-  const key = process.env.SESSION_SIGNING_KEY || '';
-  if (key.length < 32) {
-    throw new AppError('SESSION_SIGNING_KEY not configured or too short (min 32 chars)', 503);
-  }
-  return key;
-}
-
-// ── Password Hashing ────────────────────────────────────────────────────
-
-export async function hashPassword(password: string, salt: string): Promise<string> {
-  const enc = new TextEncoder();
-  const keyMaterial = await crypto.subtle.importKey(
-    'raw',
-    enc.encode(password),
-    { name: 'PBKDF2' },
-    false,
-    ['deriveBits', 'deriveKey']
-  );
-  const derivedKey = await crypto.subtle.deriveKey(
-    {
-      name: 'PBKDF2',
-      salt: enc.encode(salt),
-      iterations: 100000,
-      hash: 'SHA-256',
-    },
-    keyMaterial,
-    { name: 'HMAC', hash: 'SHA-256', length: 256 },
-    true,
-    ['sign']
-  );
-  const exported = await crypto.subtle.exportKey('raw', derivedKey);
-  return Array.from(new Uint8Array(exported))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-}
-
-// ── Token Signing & Verification ────────────────────────────────────────
-
-export async function signSessionToken(payload: SessionPayload): Promise<string> {
-  const secret = getSigningKey();
-  const enc = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    'raw',
-    enc.encode(secret),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign']
-  );
-  const jsonStr = JSON.stringify(payload);
-  const payloadB64 = Buffer.from(jsonStr).toString('base64url');
-  const sig = await crypto.subtle.sign('HMAC', key, enc.encode(payloadB64));
-  const sigHex = Array.from(new Uint8Array(sig))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-  return `${payloadB64}.${sigHex}`;
-}
+import { requireOrigin, tenantIdSchema } from './request-security';
+import { hashPassword, signSessionToken, verifySessionSignature, SESSION_COOKIE_NAME, OWNER_COOKIE_NAME, type SessionPayload, type UserRole } from './session';
+export { hashPassword, signSessionToken, SESSION_COOKIE_NAME, OWNER_COOKIE_NAME };
+export type { SessionPayload, UserRole };
 
 export async function verifySessionToken(token: string): Promise<SessionPayload | null> {
-  try {
-    const secret = getSigningKey();
-    if (!token || typeof token !== 'string') return null;
-    const parts = token.trim().replace(/^"|"$/g, '').split('.');
-    if (parts.length !== 2 || !/^[a-f0-9]{64}$/.test(parts[1])) return false as any;
-
-    const [payloadB64, sigHex] = parts;
-    const enc = new TextEncoder();
-    const key = await crypto.subtle.importKey(
-      'raw',
-      enc.encode(secret),
-      { name: 'HMAC', hash: 'SHA-256' },
-      false,
-      ['verify']
-    );
-
-    const sigBytes = new Uint8Array(sigHex.match(/../g)!.map((h) => parseInt(h, 16)));
-    const valid = await crypto.subtle.verify('HMAC', key, sigBytes, enc.encode(payloadB64));
-    if (!valid) return null;
-
-    const jsonStr = Buffer.from(payloadB64, 'base64url').toString('utf8');
-    const data = JSON.parse(jsonStr) as SessionPayload;
-
-    if (!data.jti || !data.userId || !data.role || !data.exp) return null;
-    if (Date.now() >= data.exp) return null;
-
-    // Check revocation in database
-    const d = db();
-    const sessionRow = await d
-      .prepare('SELECT revoked_at, expires_at FROM auth_sessions WHERE id = ?')
-      .bind(data.jti)
-      .first<{ revoked_at: number | null; expires_at: number }>();
-
-    if (sessionRow && (sessionRow.revoked_at !== null || Date.now() >= sessionRow.expires_at)) {
-      return null;
-    }
-
-    return data;
-  } catch {
-    return null;
-  }
+  const data = await verifySessionSignature(token);
+  if (!data) return null;
+  const row = await db().prepare(`SELECT s.revoked_at,s.expires_at,u.status,u.role,u.tenant_id
+    FROM auth_sessions s JOIN business_users u ON u.id=s.user_id
+    JOIN business_tenants t ON t.id=u.tenant_id
+    WHERE s.id=? AND s.user_id=? AND s.tenant_id=? AND s.role=? AND t.status='active'`)
+    .bind(data.jti,data.userId,data.tenantId,data.role)
+    .first<{revoked_at:number|null;expires_at:number;status:string;role:string;tenant_id:string}>();
+  if (!row || row.revoked_at !== null || row.expires_at <= Date.now() ||
+      row.status !== 'active' || row.role !== data.role || row.tenant_id !== data.tenantId) return null;
+  return data;
 }
 
 // ── Session Management (Database-backed) ────────────────────────────────
@@ -215,14 +116,12 @@ export async function getAuthSession(request?: Request): Promise<SessionPayload 
       })
     );
 
-    if (cookies[SESSION_COOKIE_NAME]) {
-      const session = await verifySessionToken(cookies[SESSION_COOKIE_NAME]);
-      if (session) return session;
-    }
-
     // 3. Fallback: Nina Master Admin session from Instagram Control Room
     if (cookies[OWNER_COOKIE_NAME]) {
-      const isOwner = await validOwnerSession(cookies[OWNER_COOKIE_NAME]);
+      const isOwner = await validStoredOwnerSession(cookies[OWNER_COOKIE_NAME], async key => {
+        const row = await db().prepare('SELECT payload FROM workspace_state WHERE key=?').bind(key).first<{payload:string}>();
+        return row ? JSON.parse(row.payload) : null;
+      });
       if (isOwner) {
         return {
           jti: 'owner_session',
@@ -236,6 +135,11 @@ export async function getAuthSession(request?: Request): Promise<SessionPayload 
         };
       }
     }
+    if (cookies[SESSION_COOKIE_NAME]) {
+      const session = await verifySessionToken(cookies[SESSION_COOKIE_NAME]);
+      if (session) return session;
+    }
+
   }
 
   return null;
@@ -249,11 +153,7 @@ export async function requireAuth(request?: Request): Promise<SessionPayload> {
 
   // Origin / CSRF validation on mutating methods
   if (request && ['POST', 'PUT', 'DELETE', 'PATCH'].includes(request.method)) {
-    const origin = process.env.NEXT_PUBLIC_APP_URL;
-    const reqOrigin = request.headers.get('origin');
-    if (origin && reqOrigin && new URL(origin).origin !== reqOrigin) {
-      throw new AppError('Invalid request origin.', 403);
-    }
+    requireOrigin(request);
   }
 
   return session;
@@ -280,6 +180,8 @@ export async function requireTenantAccess(
     effectiveTenantId = session.tenantId;
   }
 
+  if (!tenantIdSchema.safeParse(effectiveTenantId).success) throw new AppError('Invalid workspace.',400);
+
   // Check if tenant is suspended (master admin can still inspect suspended tenants)
   const d = db();
   const tenantRow = await d
@@ -287,7 +189,8 @@ export async function requireTenantAccess(
     .bind(effectiveTenantId)
     .first<{ status: string; name: string }>();
 
-  if (tenantRow && tenantRow.status === 'suspended' && session.role !== 'master_admin') {
+  if (!tenantRow || tenantRow.status === 'deleted') throw new AppError('Workspace not found.',404);
+  if (tenantRow.status === 'suspended' && session.role !== 'master_admin') {
     throw new AppError(`Access suspended: '${tenantRow.name}' has been deactivated by administrator.`, 403);
   }
 

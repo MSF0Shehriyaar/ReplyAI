@@ -17,6 +17,9 @@ import {
   AppError,
   audit,
   saveSecret,
+  saveTenantSecret,
+  tenantSecret,
+  assertActiveTenant,
   secret,
   db,
   getThread,
@@ -32,6 +35,9 @@ import {
   deleteBusinessTenant,
   getTursoStats,
 } from '@/lib/server';
+import { workspaceSchema } from '@/lib/validation';
+import { readJSON } from '@/lib/request-security';
+import { consumeRateLimit } from '@/lib/rate-limit';
 import { providerConfig } from '@/lib/provider-config';
 import { queueStatus, processNextJob } from '@/lib/queue';
 import { waDefaults, type WASettings, type RegisteredBusiness } from '@/lib/model';
@@ -55,10 +61,10 @@ export async function GET(request: NextRequest) {
       settings(tenantId),
       allThreads(tenantId),
       allOrders(tenantId),
-      connectionStatus(),
+      connectionStatus(tenantId),
       computeAnalytics(tenantId),
       queueStatus(tenantId),
-      readState(`wa_usage_${tenantId}`, { calls: 0, tokens: 0, sent: 0 }),
+      db().prepare('SELECT calls,tokens,sent,received FROM tenant_usage WHERE tenant_id=?').bind(tenantId).first().then(row=>row || {calls:0,tokens:0,sent:0,received:0}),
     ]);
 
     let registeredAccounts: RegisteredBusiness[] = [];
@@ -123,13 +129,19 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     await initDatabase();
-    const body = await request.json().catch(() => ({}));
+    const parsed = workspaceSchema.safeParse(await readJSON(request));
+    if (!parsed.success) throw new AppError('Invalid workspace action or fields.',400);
+    const body:any = parsed.data;
     const action = String(body.action || '').trim();
 
     const targetTenantId = body.tenantId || body.businessId || request.nextUrl.searchParams.get('tenantId');
     const { session, tenantId } = await requireTenantAccess(request, targetTenantId);
 
     const isNinaAdmin = session.role === 'master_admin';
+    await consumeRateLimit('workspace:'+session.userId,120,60000);
+    const operatorActions = new Set(['approve-thread','edit-draft','send-manual','takeover','resolve','set-priority','add-tag','remove-tag','send-quick-reply','update-order-status']);
+    if (session.role === 'business_operator' && !operatorActions.has(action)) throw new AppError('Business administrator access required.',403);
+    if (!['reactivate-business','suspend-business','delete-business','refresh-turso-stats'].includes(action)) await assertActiveTenant(tenantId);
 
     // ── Master Admin Privileged Business Controls ─────────────────────────
     if (action === 'suspend-business') {
@@ -180,27 +192,37 @@ export async function POST(request: NextRequest) {
     if (action === 'save-credentials') {
       let count = 0;
       if (body.waAccessToken) {
-        await saveSecret(`wa_access_token_${tenantId}`, body.waAccessToken);
+        await saveTenantSecret(tenantId,'wa_access_token',body.waAccessToken);
+        count++;
+      }
+      if (body.waAppSecret || body.waVerifyToken) {
+        await requireMasterAdmin(request);
+        if(body.waAppSecret) await saveSecret('wa_app_secret',body.waAppSecret);
+        if(body.waVerifyToken) await saveSecret('wa_verify_token',body.waVerifyToken);
         count++;
       }
       if (body.waPhoneNumberId) {
+        const token=body.waAccessToken || await tenantSecret(tenantId,'wa_access_token');
+        if(!token) throw new AppError('Access token required to verify this phone.',400);
+        const response=await fetch('https://graph.facebook.com/'+(await settings(tenantId)).graphVersion+'/'+body.waPhoneNumberId+'?fields=id', {headers:{Authorization:'Bearer '+token},signal:AbortSignal.timeout(15000)});
+        if(!response.ok || (await response.json()).id !== body.waPhoneNumberId) throw new AppError('Could not verify ownership of this WhatsApp phone.',403);
         const d = db();
         await d
           .prepare(
-            `INSERT INTO tenant_connections (tenant_id, phone_number_id, updated_at) VALUES (?, ?, ?)
-             ON CONFLICT(tenant_id) DO UPDATE SET phone_number_id=excluded.phone_number_id, updated_at=excluded.updated_at`
+            `INSERT INTO tenant_connections (tenant_id, phone_number_id, updated_at,provider) VALUES (?, ?, ?,'cloud')
+             ON CONFLICT(tenant_id) DO UPDATE SET phone_number_id=excluded.phone_number_id,provider='cloud', updated_at=excluded.updated_at`
           )
           .bind(tenantId, body.waPhoneNumberId, Date.now())
           .run();
         count++;
       }
       if (body.groqKey) {
-        await saveSecret(`groq_key_${tenantId}`, body.groqKey);
+        await saveTenantSecret(tenantId,'groq_key',body.groqKey);
         count++;
       }
       if (!count) throw new AppError('Provide at least one credential to save.');
       await audit('Credentials saved', `Saved ${count} credential(s)`, tenantId);
-      return NextResponse.json({ ok: true, connections: await connectionStatus() });
+      return NextResponse.json({ ok: true, connections: await connectionStatus(tenantId) });
     }
 
     // ── Tenant-Scoped Conversation Actions ──────────────────────────────

@@ -12,3 +12,14 @@ export async function validOwnerSession(token: string | undefined): Promise<bool
     return await crypto.subtle.verify('HMAC', key, Uint8Array.from(parts[1].match(/../g)!, h => parseInt(h,16)), enc.encode(payload));
   } catch { return false; }
 }
+
+// Session presence is mandatory: deleting or revoking the server record invalidates a cookie.
+export async function validStoredOwnerSession(token: string | undefined, lookup: (key: string) => Promise<any>): Promise<boolean> {
+  if (!await validOwnerSession(token)) return false;
+  try {
+    const payload = JSON.parse(atob(token!.split('.')[0]));
+    if (typeof payload.jti !== 'string' || !/^[a-f0-9-]{36}$/.test(payload.jti)) return false;
+    const session = await lookup('owner_session:' + payload.jti);
+    return !!session && !session.revokedAt && session.expiresAt > Date.now() && session.user === payload.user;
+  } catch { return false; }
+}

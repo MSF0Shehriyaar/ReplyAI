@@ -1,3 +1,4 @@
+import { claimThreadJobs, releaseThread } from './queue-ownership';
 // ─── WhatsApp Automation — Job Queue Processor ──────────────────────────
 // Processes incoming WhatsApp messages: generates AI replies, handles
 // escalation rules, auto-replies, and customer support workflows.
@@ -70,7 +71,7 @@ function matchAutoReplyRule(
 
 // ── Escalation Check ────────────────────────────────────────────────────
 
-async function checkEscalation(thread: WAThread, s: WASettings): Promise<boolean> {
+async function checkEscalation(thread: WAThread, s: WASettings, tenantId: string): Promise<boolean> {
   for (const rule of s.escalationRules) {
     if (!rule.enabled) continue;
 
@@ -79,7 +80,7 @@ async function checkEscalation(thread: WAThread, s: WASettings): Promise<boolean
         if (thread.sentiment === 'angry' || thread.sentiment === 'negative') {
           thread.status = 'escalated';
           thread.priority = rule.priority;
-          await audit('Escalation', `${rule.name}: ${thread.name} — ${thread.sentiment} sentiment`);
+          await audit('Escalation', `${rule.name}: ${thread.name} — ${thread.sentiment} sentiment`, tenantId);
           return true;
         }
         break;
@@ -88,7 +89,7 @@ async function checkEscalation(thread: WAThread, s: WASettings): Promise<boolean
         if (lastMsg && new RegExp(rule.conditionValue, 'i').test(lastMsg.text)) {
           thread.status = 'escalated';
           thread.priority = rule.priority;
-          await audit('Escalation', `${rule.name}: keyword match in ${thread.name}`);
+          await audit('Escalation', `${rule.name}: keyword match in ${thread.name}`, tenantId);
           return true;
         }
         break;
@@ -98,7 +99,7 @@ async function checkEscalation(thread: WAThread, s: WASettings): Promise<boolean
         if (waitMinutes > parseInt(rule.conditionValue || '30')) {
           thread.status = 'escalated';
           thread.priority = rule.priority;
-          await audit('Escalation', `${rule.name}: ${thread.name} waited ${Math.round(waitMinutes)}min`);
+          await audit('Escalation', `${rule.name}: ${thread.name} waited ${Math.round(waitMinutes)}min`, tenantId);
           return true;
         }
         break;
@@ -106,7 +107,7 @@ async function checkEscalation(thread: WAThread, s: WASettings): Promise<boolean
       case 'vip_customer':
         if (thread.customerProfile?.vip) {
           thread.priority = rule.priority;
-          await audit('VIP Priority', `${rule.name}: VIP customer ${thread.name}`);
+          await audit('VIP Priority', `${rule.name}: VIP customer ${thread.name}`, tenantId);
           return false; // Don't escalate, just bump priority
         }
         break;
@@ -149,7 +150,7 @@ export async function processThreadJobs(threadId: string, tenantId: string = 'bi
     .bind(tenantId)
     .first<{ status: string }>();
 
-  if (tenantRow && tenantRow.status === 'suspended') {
+  if (!tenantRow || tenantRow.status !== 'active') {
     console.warn(`[WA Queue] Aborting jobs: business tenant ${tenantId} is suspended.`);
     await db()
       .prepare("UPDATE wa_jobs SET status='failed' WHERE thread_id=? AND tenant_id=? AND status='pending'")
@@ -160,24 +161,8 @@ export async function processThreadJobs(threadId: string, tenantId: string = 'bi
 
   const s = await settings(tenantId);
 
-  const queryResult = await db()
-    .prepare(
-      `SELECT * FROM wa_jobs WHERE thread_id=? AND tenant_id=? AND status='pending' AND attempts<? AND created<=?
-       ORDER BY created ASC`
-    )
-    .bind(threadId, tenantId, s.maxRetries ?? 3, Date.now())
-    .all();
-  const jobs = (queryResult?.results || []) as Job[];
-
-  if (!jobs.length) return { processed: 0 };
-
-  // Mark all pending jobs for this thread as processing immediately
-  for (const job of jobs) {
-    await db()
-      .prepare("UPDATE wa_jobs SET status='processing',attempts=attempts+1 WHERE id=?")
-      .bind(job.id)
-      .run();
-  }
+  const {token,jobs} = await claimThreadJobs(tenantId,threadId,s.maxRetries ?? 3);
+  if(!jobs.length) { await releaseThread(tenantId,threadId,token); return {processed:0}; }
 
   try {
     let thread = await getThread(threadId, tenantId);
@@ -221,7 +206,7 @@ export async function processThreadJobs(threadId: string, tenantId: string = 'bi
         senderName: event.senderName,
         senderPhone: event.senderPhone,
       };
-      thread.messages.push(newMessage);
+      if (!thread.messages.some(m=>m.id===newMessage.id)) thread.messages.push(newMessage);
       thread.lastInbound = newMessage.at;
       if (event.text?.trim()) incomingTexts.push(event.text.trim());
     }
@@ -309,7 +294,7 @@ export async function processThreadJobs(threadId: string, tenantId: string = 'bi
         await saveThread(thread, tenantId);
         await saveCustomerProfile(customer, tenantId);
         for (const j of jobs) {
-          await db().prepare("UPDATE wa_jobs SET status='done' WHERE id=?").bind(j.id).run();
+          await db().prepare("UPDATE wa_jobs SET status='done' WHERE id=? AND tenant_id=?").bind(j.id,tenantId).run();
         }
         await audit('Flagged', `${flag} — ${thread.name}`, tenantId);
         return { processed: jobs.length };
@@ -317,14 +302,23 @@ export async function processThreadJobs(threadId: string, tenantId: string = 'bi
     }
 
     // Check escalation rules
-    const escalated = await checkEscalation(thread, s);
+    const escalated = await checkEscalation(thread, s, tenantId);
     if (escalated) {
       await saveThread(thread, tenantId);
       await saveCustomerProfile(customer, tenantId);
       for (const j of jobs) {
-        await db().prepare("UPDATE wa_jobs SET status='done' WHERE id=?").bind(j.id).run();
+        await db().prepare("UPDATE wa_jobs SET status='done' WHERE id=? AND tenant_id=?").bind(j.id,tenantId).run();
       }
       return { processed: jobs.length };
+    }
+
+    await saveThread(thread,tenantId);
+
+    // Manual takeover and disabled automation apply to rule replies as well as AI.
+    if (thread.takeover || !thread.ai || !s.enabled) {
+      await saveCustomerProfile(customer,tenantId);
+      for(const job of jobs) await db().prepare("UPDATE wa_jobs SET status='done' WHERE tenant_id=? AND id=?").bind(tenantId,job.id).run();
+      return {processed:jobs.length};
     }
 
     // Check auto-reply rules
@@ -346,7 +340,7 @@ export async function processThreadJobs(threadId: string, tenantId: string = 'bi
       if (replyText && !s.approval) {
         await sendReply(thread, replyText, tenantId);
         for (const j of jobs) {
-          await db().prepare("UPDATE wa_jobs SET status='done' WHERE id=?").bind(j.id).run();
+          await db().prepare("UPDATE wa_jobs SET status='done' WHERE id=? AND tenant_id=?").bind(j.id,tenantId).run();
         }
         return { processed: jobs.length };
       } else if (replyText) {
@@ -355,7 +349,7 @@ export async function processThreadJobs(threadId: string, tenantId: string = 'bi
         await saveThread(thread, tenantId);
         await saveCustomerProfile(customer, tenantId);
         for (const j of jobs) {
-          await db().prepare("UPDATE wa_jobs SET status='done' WHERE id=?").bind(j.id).run();
+          await db().prepare("UPDATE wa_jobs SET status='done' WHERE id=? AND tenant_id=?").bind(j.id,tenantId).run();
         }
         return { processed: jobs.length };
       }
@@ -366,7 +360,7 @@ export async function processThreadJobs(threadId: string, tenantId: string = 'bi
       await saveThread(thread, tenantId);
       await saveCustomerProfile(customer, tenantId);
       for (const j of jobs) {
-        await db().prepare("UPDATE wa_jobs SET status='done' WHERE id=?").bind(j.id).run();
+        await db().prepare("UPDATE wa_jobs SET status='done' WHERE id=? AND tenant_id=?").bind(j.id,tenantId).run();
       }
       return { processed: jobs.length };
     }
@@ -402,43 +396,34 @@ export async function processThreadJobs(threadId: string, tenantId: string = 'bi
 
     await saveCustomerProfile(customer, tenantId);
     for (const j of jobs) {
-      await db().prepare("UPDATE wa_jobs SET status='done' WHERE id=?").bind(j.id).run();
+      await db().prepare("UPDATE wa_jobs SET status='done' WHERE id=? AND tenant_id=?").bind(j.id,tenantId).run();
     }
     return { processed: jobs.length };
   } catch (err) {
     console.error(`[WA] Error in processThreadJobs for ${threadId}:`, err);
     for (const j of jobs) {
-      await db().prepare("UPDATE wa_jobs SET status='pending' WHERE id=?").bind(j.id).run();
+      await db().prepare("UPDATE wa_jobs SET status=CASE WHEN attempts>=3 THEN 'failed' ELSE 'pending' END WHERE id=? AND tenant_id=?").bind(j.id,tenantId).run();
     }
     return { processed: 0 };
-  }
+  } finally { await releaseThread(tenantId,threadId,token); }
 }
 
 export async function processNextJob(tenantId?: string): Promise<{ processed: number }> {
   const d = db();
   const s = await settings(tenantId || 'biz_titan_watches');
 
-  // Recover stale processing jobs
-  const cutoff = Date.now() - 120000;
-  await d
-    .prepare(
-      "UPDATE wa_jobs SET status='pending',attempts=0,created=? WHERE status='processing' AND created<?"
-    )
-    .bind(Date.now(), cutoff)
-    .run();
-
   let queryResult;
   if (tenantId) {
     queryResult = await d
       .prepare(
-        `SELECT DISTINCT thread_id, tenant_id FROM wa_jobs WHERE status='pending' AND attempts<? AND created<=? AND tenant_id=? LIMIT 5`
+        `SELECT DISTINCT thread_id, tenant_id FROM wa_jobs WHERE status IN ('pending','processing') AND attempts<? AND created<=? AND tenant_id=? LIMIT 5`
       )
       .bind(s.maxRetries ?? 3, Date.now(), tenantId)
       .all();
   } else {
     queryResult = await d
       .prepare(
-        `SELECT DISTINCT thread_id, tenant_id FROM wa_jobs WHERE status='pending' AND attempts<? AND created<=? LIMIT 5`
+        `SELECT DISTINCT thread_id, tenant_id FROM wa_jobs WHERE status IN ('pending','processing') AND attempts<? AND created<=? LIMIT 5`
       )
       .bind(s.maxRetries ?? 3, Date.now())
       .all();
@@ -483,7 +468,7 @@ async function syncOrderIfConfirmed(
 
     if (eventText && eventText.trim()) {
       console.log(`[WA] 🧠 Requesting AI confirmation feedback for customer message: "${eventText}"`);
-      aiFeedback = await queryAIConfirmationFeedback(thread, eventText);
+      aiFeedback = await queryAIConfirmationFeedback(thread, eventText, tenantId);
       console.log(`[WA] 🤖 AI Confirmation Feedback result: isConfirmed=${aiFeedback.isConfirmed} (${aiFeedback.reason || 'no reason'})`);
     }
 
@@ -555,7 +540,7 @@ async function syncOrderIfConfirmed(
     const targetOrderStatus = isReadyForDispatch ? 'ready_for_dispatch' : 'confirmed';
 
     if (!order) {
-      const orderNum = Math.floor(1000 + Math.random() * 9000);
+      const orderNum = crypto.randomUUID();
       const newOrder: WAOrder = {
         id: `ORD-${orderNum}`,
         threadId: thread.id,

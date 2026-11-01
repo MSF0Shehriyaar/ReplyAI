@@ -1,6 +1,8 @@
 // ─── WhatsApp Connection API — Multi-Tenant QR Device Pairing ────────────
 import { NextRequest, NextResponse } from 'next/server';
 import { requireTenantAccess } from '@/lib/auth';
+import { readJSON, tenantIdSchema } from '@/lib/request-security';
+import { z } from 'zod';
 import { getWhatsAppClient } from '@/lib/whatsapp-client';
 import {
   initDatabase,
@@ -30,9 +32,12 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     await initDatabase();
-    const body = await request.json().catch(() => ({}));
+    const parsed=z.object({action:z.enum(['connect','disconnect','logout','status']),tenantId:tenantIdSchema.optional()}).strict().safeParse(await readJSON(request,2048));
+    if(!parsed.success) throw new AppError('Invalid connection action.',400);
+    const body = parsed.data;
     const targetTenantId = body.tenantId || request.nextUrl.searchParams.get('tenantId');
-    const { tenantId } = await requireTenantAccess(request, targetTenantId);
+    const { tenantId, session } = await requireTenantAccess(request, targetTenantId);
+    if(session.role === 'business_operator') throw new AppError('Business administrator access required.',403);
 
     const { action } = body;
     const client = getWhatsAppClient(tenantId);

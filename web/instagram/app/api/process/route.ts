@@ -1,6 +1,6 @@
 import {requireWorkspaceRequest,errorResponse,AppError} from '@/lib/server';
 import {processQueueBatch} from '@/lib/queue';
-import {validSignature} from '../webhook/route';
+import {validSignature} from '@/lib/verify-event';
 
 export async function POST(request:Request){
   try{

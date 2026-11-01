@@ -55,6 +55,7 @@ work/
 
 # WhatsApp Auth & Local State
 .wa-auth/
+.wa-tenants/
 **/.wa-auth/**
 workspace_state.json
 **/workspace_state.json

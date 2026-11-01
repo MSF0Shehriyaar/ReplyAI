@@ -13,7 +13,8 @@ import makeWASocket, {
   type proto,
 } from '@whiskeysockets/baileys';
 import * as QRCode from 'qrcode';
-import { join } from 'path';
+import { join, resolve, sep } from 'path';
+import { existsSync, mkdirSync, renameSync } from 'node:fs';
 import { EventEmitter } from 'events';
 
 // ── Types ───────────────────────────────────────────────────────────────
@@ -56,12 +57,15 @@ class WhatsAppClient extends EventEmitter {
 
   constructor(tenantId: string = 'biz_titan_watches') {
     super();
+    if(!/^[a-zA-Z0-9_-]{1,100}$/.test(tenantId)) throw new Error('Invalid workspace ID');
     this.tenantId = tenantId;
     // Store auth state per tenant to guarantee complete connection & device isolation
     if (tenantId === 'biz_titan_watches') {
       this.authDir = join(process.cwd(), '.wa-auth');
     } else {
-      this.authDir = join(process.cwd(), '.wa-auth', tenantId);
+      this.authDir = join(process.cwd(), '.wa-tenants', tenantId);
+      const previous = join(process.cwd(), '.wa-auth', tenantId);
+      if(existsSync(previous) && !existsSync(this.authDir)) { mkdirSync(join(process.cwd(),'.wa-tenants'),{recursive:true}); renameSync(previous,this.authDir); }
     }
   }
 
@@ -320,6 +324,9 @@ class WhatsAppClient extends EventEmitter {
   }
 
   async disconnect(): Promise<void> {
+    if(this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer=null; }
+    this.sock?.ev.removeAllListeners('connection.update');
+    this.sock?.ev.removeAllListeners('messages.upsert');
     if (this.sock) {
       this.sock.end(undefined);
       this.sock = null;
@@ -333,6 +340,8 @@ class WhatsAppClient extends EventEmitter {
   }
 
   async logout(): Promise<void> {
+    if(this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer=null; }
+    this.sock?.ev.removeAllListeners('connection.update');
     if (this.sock) {
       await this.sock.logout();
       this.sock = null;
@@ -345,8 +354,13 @@ class WhatsAppClient extends EventEmitter {
 
     // Clean auth files
     const fs = await import('fs');
-    if (fs.existsSync(this.authDir)) {
-      fs.rmSync(this.authDir, { recursive: true, force: true });
+    const expected=resolve(process.cwd(),this.tenantId==='biz_titan_watches'?'.wa-auth':'.wa-tenants/'+this.tenantId);
+    if(resolve(this.authDir)!==expected || !expected.startsWith(resolve(process.cwd())+sep)) throw new Error('Invalid device storage path');
+    if (fs.existsSync(expected)) {
+      // Never recursively remove the legacy root: it may still contain another business's device directory.
+      if(this.tenantId==='biz_titan_watches') {
+        for(const entry of fs.readdirSync(expected,{withFileTypes:true})) if(entry.isFile()) fs.unlinkSync(join(expected,entry.name));
+      } else fs.rmSync(expected,{recursive:true,force:true});
     }
 
     this.emit('state', this.state);

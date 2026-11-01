@@ -112,7 +112,7 @@ export default function DigitalBoutiqueCatalog() {
 
   // Single watch quick order
   const handleSingleOrderOnWhatsApp = (item: CatalogItem) => {
-    const text = `Hi Titan Watches! ✨ I would like to order the ${item.name} (₹${item.price.toLocaleString('en-IN')}) with privilege discount code TITAN10. Please help me with delivery & confirmation!`;
+    const text = `Hi Titan Watches!  I would like to order the ${item.name} (₹${item.price.toLocaleString('en-IN')}) with privilege discount code TITAN10. Please help me with delivery & confirmation!`;
     const url = `https://wa.me/${businessPhone}?text=${encodeURIComponent(text)}`;
     window.open(url, '_blank');
   };
@@ -121,16 +121,16 @@ export default function DigitalBoutiqueCatalog() {
   const handleBulkOrderOnWhatsApp = () => {
     if (cartItems.length === 0) return;
 
-    let text = `Hi Titan Watches! ✨ I would like to place an order for the following ${totalItemsCount} timepiece(s):\n\n`;
+    let text = `Hi Titan Watches!  I would like to place an order for the following ${totalItemsCount} timepiece(s):\n\n`;
     cartItems.forEach((c, idx) => {
       text += `${idx + 1}. *${c.item.name}* (Qty: ${c.qty}) — ₹${c.lineTotal.toLocaleString('en-IN')}\n`;
     });
 
     text += `\n───────────────\n`;
-    text += `📦 *Total Timepieces*: ${totalItemsCount}\n`;
-    text += `💰 *Subtotal*: ₹${subtotal.toLocaleString('en-IN')}\n`;
-    text += `🏷️ *VIP Privilege Code*: TITAN10 (-10%)\n`;
-    text += `💎 *Final Payable*: ₹${finalAmount.toLocaleString('en-IN')}\n\n`;
+    text += ` *Total Timepieces*: ${totalItemsCount}\n`;
+    text += ` *Subtotal*: ₹${subtotal.toLocaleString('en-IN')}\n`;
+    text += ` *VIP Privilege Code*: TITAN10 (-10%)\n`;
+    text += ` *Final Payable*: ₹${finalAmount.toLocaleString('en-IN')}\n\n`;
     text += `Please confirm availability and dispatch to my delivery address!`;
 
     const url = `https://wa.me/${businessPhone}?text=${encodeURIComponent(text)}`;
@@ -150,7 +150,7 @@ export default function DigitalBoutiqueCatalog() {
     <div style={styles.page}>
       {/* Top Banner */}
       <div style={styles.topBanner}>
-        <span>✨ World of Titan Official Digital Concierge · 10% OFF Bulk & Single Orders with code <b>TITAN10</b></span>
+        <span> World of Titan Official Digital Concierge · 10% OFF Bulk & Single Orders with code <b>TITAN10</b></span>
       </div>
 
       {/* Header */}
@@ -167,18 +167,18 @@ export default function DigitalBoutiqueCatalog() {
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
             {totalItemsCount > 0 && (
               <button onClick={() => setIsCartOpen(true)} style={styles.headerCartBtn}>
-                <span>🛒 Cart ({totalItemsCount})</span>
+                <span> Cart ({totalItemsCount})</span>
                 <span style={styles.cartBtnPrice}>₹{finalAmount.toLocaleString('en-IN')}</span>
               </button>
             )}
 
             <a
-              href={`https://wa.me/${businessPhone}?text=${encodeURIComponent('Hi Titan Watches! ✨ I would like to explore your timepiece collection.')}`}
+              href={`https://wa.me/${businessPhone}?text=${encodeURIComponent('Hi Titan Watches!  I would like to explore your timepiece collection.')}`}
               target="_blank"
               rel="noreferrer"
               style={styles.headerChatBtn}
             >
-              <span>💬 Chat with Titan Watches</span>
+              <span> Chat with Titan Watches</span>
             </a>
           </div>
         </div>
@@ -247,7 +247,7 @@ export default function DigitalBoutiqueCatalog() {
 
                   {/* Badges */}
                   <div style={styles.badgeRow}>
-                    {item.bestseller && <span style={styles.bestsellerBadge}>⭐ BESTSELLER</span>}
+                    {item.bestseller && <span style={styles.bestsellerBadge}> BESTSELLER</span>}
                     <span style={styles.categoryBadge}>{item.category}</span>
                   </div>
 
@@ -304,7 +304,7 @@ export default function DigitalBoutiqueCatalog() {
                           onClick={() => addToCart(item)}
                           style={styles.addToCartBtn}
                         >
-                          <span>🛒 Add to Cart</span>
+                          <span> Add to Cart</span>
                         </button>
                       )}
 
@@ -313,7 +313,7 @@ export default function DigitalBoutiqueCatalog() {
                         style={styles.quickOrderBtn}
                         title="Order this single item directly on WhatsApp"
                       >
-                        <span>⚡ Quick Buy</span>
+                        <span> Quick Buy</span>
                       </button>
 
                       <button
@@ -321,7 +321,7 @@ export default function DigitalBoutiqueCatalog() {
                         style={styles.copyBtn}
                         title="Copy watch selection text"
                       >
-                        {copiedId === item.id ? '✓' : '📋'}
+                        {copiedId === item.id ? '✓' : ''}
                       </button>
                     </div>
                   </div>
@@ -334,21 +334,21 @@ export default function DigitalBoutiqueCatalog() {
         {/* Benefits Strip */}
         <section style={styles.benefitsStrip}>
           <div style={styles.benefitItem}>
-            <span style={{ fontSize: 24 }}>🚚</span>
+            <span style={{ fontSize: 24 }}></span>
             <div>
               <h4 style={styles.benefitTitle}>Free Express Delivery</h4>
               <p style={styles.benefitText}>Pan-India delivery in 2-4 business days via BlueDart & DTDC.</p>
             </div>
           </div>
           <div style={styles.benefitItem}>
-            <span style={{ fontSize: 24 }}>🛡️</span>
+            <span style={{ fontSize: 24 }}></span>
             <div>
               <h4 style={styles.benefitTitle}>2-Year Warranty</h4>
               <p style={styles.benefitText}>Official international warranty card + luxury gift packaging.</p>
             </div>
           </div>
           <div style={styles.benefitItem}>
-            <span style={{ fontSize: 24 }}>📦</span>
+            <span style={{ fontSize: 24 }}></span>
             <div>
               <h4 style={styles.benefitTitle}>Bulk & Gifting Concierge</h4>
               <p style={styles.benefitText}>Custom corporate gifting, multiple units & privilege discount assistance.</p>
@@ -363,7 +363,7 @@ export default function DigitalBoutiqueCatalog() {
           <div style={styles.floatingCartInner}>
             <div style={styles.floatingCartInfo}>
               <span style={styles.floatingCartTitle}>
-                🛍️ Horology Bag: <b>{totalItemsCount} {totalItemsCount === 1 ? 'Watch' : 'Watches'}</b>
+                 Horology Bag: <b>{totalItemsCount} {totalItemsCount === 1 ? 'Watch' : 'Watches'}</b>
               </span>
               <span style={styles.floatingCartSub}>
                 Payable: <b style={{ color: '#34d399' }}>₹{finalAmount.toLocaleString('en-IN')}</b> (10% VIP Discount Included)
@@ -372,10 +372,10 @@ export default function DigitalBoutiqueCatalog() {
 
             <div style={{ display: 'flex', gap: 10 }}>
               <button onClick={() => setIsCartOpen(true)} style={styles.viewCartBtn}>
-                👁️ View Bag ({totalItemsCount})
+                 View Bag ({totalItemsCount})
               </button>
               <button onClick={handleBulkOrderOnWhatsApp} style={styles.bulkOrderBtn}>
-                💬 Order Bulk on WhatsApp ↗
+                 Order Bulk on WhatsApp 
               </button>
             </div>
           </div>
@@ -387,14 +387,14 @@ export default function DigitalBoutiqueCatalog() {
         <div style={styles.modalOverlay} onClick={() => setIsCartOpen(false)}>
           <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
             <div style={styles.modalHeader}>
-              <h3 style={styles.modalTitle}>🛍️ Your Titan Horology Bag ({totalItemsCount})</h3>
+              <h3 style={styles.modalTitle}> Your Titan Horology Bag ({totalItemsCount})</h3>
               <button onClick={() => setIsCartOpen(false)} style={styles.modalCloseBtn}>✕</button>
             </div>
 
             <div style={styles.modalBody}>
               {cartItems.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '40px 20px', color: '#94a3b8' }}>
-                  <p style={{ fontSize: 32, margin: '0 0 10px 0' }}>🛒</p>
+                  <p style={{ fontSize: 32, margin: '0 0 10px 0' }}></p>
                   <p>Your horology bag is empty.</p>
                   <button onClick={() => setIsCartOpen(false)} style={styles.viewCartBtn}>
                     Explore Collection
@@ -424,7 +424,7 @@ export default function DigitalBoutiqueCatalog() {
                             <button onClick={() => updateQuantity(item.id, 1)} style={styles.qtySmallBtn}>+</button>
                           </div>
                           <div style={styles.cartItemTotal}>₹{lineTotal.toLocaleString('en-IN')}</div>
-                          <button onClick={() => removeFromCart(item.id)} style={styles.removeBtn} title="Remove item">🗑️</button>
+                          <button onClick={() => removeFromCart(item.id)} style={styles.removeBtn} title="Remove item"></button>
                         </div>
                       </div>
                     ))}
@@ -453,7 +453,7 @@ export default function DigitalBoutiqueCatalog() {
                   {/* Actions */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 16 }}>
                     <button onClick={handleBulkOrderOnWhatsApp} style={styles.modalBulkBtn}>
-                      <span>💬 Complete Bulk Order on WhatsApp (₹{finalAmount.toLocaleString('en-IN')})</span>
+                      <span> Complete Bulk Order on WhatsApp (₹{finalAmount.toLocaleString('en-IN')})</span>
                     </button>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <button onClick={clearCart} style={styles.clearCartBtn}>Empty Bag</button>
@@ -471,7 +471,7 @@ export default function DigitalBoutiqueCatalog() {
       <footer style={styles.footer}>
         <div style={styles.footerInner}>
           <p style={{ margin: 0, color: '#94a3b8', fontSize: 13 }}>
-            © {new Date().getFullYear()} Titan Watches — A TATA Enterprise. Official Digital Concierge Service.
+             {new Date().getFullYear()} Titan Watches — A TATA Enterprise. Official Digital Concierge Service.
           </p>
         </div>
       </footer>

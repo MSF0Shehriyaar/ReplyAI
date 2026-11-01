@@ -1,22 +1,5 @@
-import { NextResponse } from 'next/server';
-
+// WhatsApp owns these routes. Never expose an unauthenticated fallback from Instagram.
 export const dynamic = 'force-dynamic';
-export const revalidate = 0;
-
-export async function GET() {
-  return NextResponse.json({
-    connected: true,
-    phone: '+91 99728 09609',
-    name: 'Titan Watches Luxury Concierge',
-    ready: true,
-    pairingCode: null,
-    qr: null,
-    mode: 'baileys',
-  }, {
-    headers: {
-      'Cache-Control': 'no-store, no-cache, must-revalidate',
-      Pragma: 'no-cache',
-    },
-  });
-}
+export async function GET() { return Response.json({error:'WhatsApp service unavailable.'},{status:503,headers:{'Cache-Control':'no-store'}}); }
+export const POST = GET;
 

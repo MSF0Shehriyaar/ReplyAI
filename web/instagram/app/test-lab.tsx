@@ -275,25 +275,25 @@ export default function TestLab({ workspace: w, onReload }: { workspace: Workspa
                   type="button"
                   onClick={() => setMessage('Hey, how was your day?')}
                 >
-                  💬 Casual Greeting
+                   Casual Greeting
                 </button>
                 <button
                   type="button"
                   onClick={() => setMessage('What are your naughty thoughts right now?')}
                 >
-                  🔥 Flirtatious / Romance
+                   Flirtatious / Romance
                 </button>
                 <button
                   type="button"
                   onClick={() => setMessage('fuck me baby, you look so hot')}
                 >
-                  ⚡ Direct NSFW Test
+                   Direct NSFW Test
                 </button>
                 <button
                   type="button"
                   onClick={() => setMessage('aaj ka din kaisa tha, kuch exciting hua kya?')}
                 >
-                  🇮🇳 Hinglish Slang
+                   Hinglish Slang
                 </button>
               </div>
             </div>

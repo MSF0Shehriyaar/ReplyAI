@@ -1,5 +1,6 @@
 @import "tailwindcss";
 
+@import "../../shared/design-system.css";
 /* ══════════════════════════════════════════════════════════════
    CSS Design Tokens — WhatsApp Automation Hub
    ══════════════════════════════════════════════════════════════ */
@@ -333,3 +334,41 @@ select option {
   background: #0d1b32;
   color: #f1f5f9;
 }
+
+.wa-app {background:var(--nina-canvas)!important;color:var(--nina-ink)!important;min-height:100dvh!important;--nina-accent:#087f6b;--nina-soft:#e9f6f2;}
+.wa-top-header {background:#ffffffed!important;border-bottom:1px solid var(--nina-line)!important;padding:18px 28px!important;backdrop-filter:blur(16px);}
+.wa-top-header h1 {letter-spacing:-.035em;}
+.wa-top-actions {gap:8px!important;}
+.wa-nav-bar {background:var(--nina-surface)!important;padding:8px 24px!important;border-bottom:1px solid var(--nina-line)!important;gap:4px!important;}
+.wa-nav-btn {min-height:44px;border-radius:10px!important;font-size:13px!important;gap:8px!important;}
+.wa-nav-btn[aria-current=page] {background:var(--nina-soft)!important;color:var(--nina-accent)!important;box-shadow:none!important;}
+.wa-nav-btn svg {width:18px;height:18px;flex-shrink:0;}
+.wa-main {padding:20px!important;}
+.wa-inbox-layout {height:calc(100dvh - 160px)!important;min-height:420px!important;border:1px solid var(--nina-line);border-radius:var(--nina-radius);box-shadow:var(--nina-shadow);background:white;}
+.wa-inbox-sidebar {background:white!important;width:320px!important;border-right:1px solid var(--nina-line)!important;min-height:0;}
+.wa-chat-panel {background:#fafbfd!important;min-height:0;}
+.wa-chat-panel textarea {resize:none;}
+.wa-app input,.wa-app textarea,.wa-app select {background:white!important;color:var(--nina-ink)!important;border-color:#cdd6e3!important;border-radius:10px!important;}
+.wa-app input::placeholder,.wa-app textarea::placeholder {color:#68768b;}
+.wa-app select option {background:white;color:var(--nina-ink);}
+.wa-app iframe {border-radius:12px;}
+.wa-app table {width:100%;border-collapse:collapse;}
+.wa-app th {color:var(--nina-muted);font-size:11px;letter-spacing:.06em;}
+.wa-app td,.wa-app th {padding:14px 12px;border-bottom:1px solid var(--nina-line);}
+.wa-app [role=dialog],.wa-app form {max-width:100%;}
+.wa-mobile-back-btn {align-items:center;justify-content:center;min-width:44px;}
+@media(max-width:767px) {
+  .wa-top-header {position:relative!important;padding:14px 16px!important;gap:12px!important;}
+  .wa-top-actions {display:flex!important;flex-wrap:wrap!important;gap:8px!important;}
+  .wa-top-actions .wa-kpi {display:none!important;}
+  .wa-nav-bar {position:sticky;top:0;z-index:80;padding:8px 12px!important;scroll-snap-type:x proximity;}
+  .wa-nav-btn {padding:10px 12px!important;scroll-snap-align:start;}
+  .wa-main {padding:10px!important;min-height:0!important;}
+  .wa-inbox-layout {height:calc(100dvh - 205px)!important;min-height:320px!important;border-radius:12px;}
+  .wa-inbox-sidebar,.wa-chat-panel {width:100%!important;min-width:0!important;flex:1!important;}
+  .wa-inbox-sidebar.wa-hide-on-mobile,.wa-chat-panel.wa-hide-on-mobile {display:none!important;}
+  .wa-chat-panel>div:first-child {padding:12px!important;flex-wrap:wrap;gap:8px;}
+  .wa-chat-panel>div:last-child {padding-bottom:calc(12px + env(safe-area-inset-bottom))!important;}
+  .wa-app [data-layout=columns] {grid-template-columns:1fr!important;}
+}
+@media(min-width:768px) {.wa-mobile-back-btn{display:none!important;}}

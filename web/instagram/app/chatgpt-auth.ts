@@ -1,6 +1,8 @@
 import { headers, cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { verifyToken } from "./api/auth/route";
+import { validStoredOwnerSession } from '../lib/owner-session';
+import { db } from '../lib/server';
+async function verifyToken(token:string) { return validStoredOwnerSession(token,async key=>{const row=await db().prepare('SELECT payload FROM workspace_state WHERE key=?').bind(key).first<{payload:string}>();return row?JSON.parse(row.payload):null;}); }
 
 export type ChatGPTUser = {
   userId: string;

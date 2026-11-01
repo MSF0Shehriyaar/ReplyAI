@@ -1,59 +1,34 @@
-// ─── WhatsApp Automation — Turso Database Adapter ───────────────────────
-// Connects to the SAME Turso database as the Instagram automation.
-// Uses a separate key prefix (wa_*) to avoid data collisions.
+import { createClient, type InStatement } from '@libsql/client';
 
-import { createClient } from '@libsql/client';
+function adapter(client: Pick<ReturnType<typeof createClient>, 'execute' | 'batch'>) {
+  function statement(sql: string, args: unknown[] = []) {
+    const query = { sql, args } as InStatement;
+    return {
+      query,
+      bind: (...values: unknown[]) => statement(sql, values),
+      async run() { const r = await client.execute(query); return { meta: { changes: r.rowsAffected } }; },
+      async first<T>(): Promise<T | null> { const r = await client.execute(query); return (r.rows[0] as T) ?? null; },
+      async all<T>(): Promise<{ results: T[] }> { const r = await client.execute(query); return { results: r.rows as T[] }; },
+    };
+  }
+  return {
+    prepare: statement,
+    async exec(sql: string) { await client.execute(sql); },
+    async batch(statements: { query: InStatement }[]) {
+      return (await client.batch(statements.map(s => s.query), 'write')).map(r => ({ meta: { changes: r.rowsAffected } }));
+    },
+  };
+}
 
 export function createTursoAdapter(url: string, authToken: string) {
   const client = createClient({ url, authToken });
-
   return {
-    prepare(sql: string) {
-      return {
-        bind(...args: unknown[]) {
-          return {
-            async run() {
-              const result = await client.execute({ sql, args: args as any[] });
-              return { meta: { changes: result.rowsAffected } };
-            },
-            async first<T>(): Promise<T | null> {
-              const result = await client.execute({ sql, args: args as any[] });
-              return (result.rows[0] as T) ?? null;
-            },
-            async all<T>(): Promise<{ results: T[] }> {
-              const result = await client.execute({ sql, args: args as any[] });
-              return { results: result.rows as T[] };
-            },
-          };
-        },
-        async run() {
-          const result = await client.execute(sql);
-          return { meta: { changes: result.rowsAffected } };
-        },
-        async first<T>(): Promise<T | null> {
-          const result = await client.execute(sql);
-          return (result.rows[0] as T) ?? null;
-        },
-        async all<T>(): Promise<{ results: T[] }> {
-          const result = await client.execute(sql);
-          return { results: result.rows as T[] };
-        },
-      };
-    },
-    async batch(statements: ReturnType<typeof this.prepare extends (...args: any[]) => infer R ? () => R : never>[]) {
-      // Execute statements sequentially for compatibility
-      const results = [];
-      for (const stmt of statements as any[]) {
-        try {
-          results.push(await stmt.run());
-        } catch {
-          results.push({ meta: { changes: 0 } });
-        }
-      }
-      return results;
-    },
-    async exec(sql: string) {
-      await client.execute(sql);
+    ...adapter(client),
+    async transaction<T>(operation: (tx: ReturnType<typeof adapter>) => Promise<T>): Promise<T> {
+      const tx = await client.transaction('write');
+      try { const result = await operation(adapter(tx)); await tx.commit(); return result; }
+      catch (error) { await tx.rollback(); throw error; }
+      finally { tx.close(); }
     },
   };
 }

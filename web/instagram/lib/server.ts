@@ -33,16 +33,35 @@ export function errorResponse(e:unknown){
 // Sites dispatch enforces owner-only access before any request reaches this
 // shared workspace. Embedded previews may use platform service access, which
 // dispatch consumes without forwarding a signed-in user's identity headers.
+export function isAllowedOrigin(origin: string | null, requestUrl?: string): boolean {
+  if (!origin) return false;
+  const configured = process.env.NEXT_PUBLIC_APP_URL;
+  if (configured) {
+    try {
+      if (origin === new URL(configured).origin) return true;
+    } catch {}
+  }
+  if (requestUrl) {
+    try {
+      if (origin === new URL(requestUrl).origin) return true;
+    } catch {}
+  }
+  if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+    return true;
+  }
+  return false;
+}
+
 // Keep this Site private; user-specific records would need identity checks.
 export async function requireWorkspaceRequest(request?:Request){
   const h = request?.headers ?? await (await import('next/headers')).headers();
   const device = h.get('x-nina-device');
   if (device) { await (await import('./mobile-access')).validateDevice(device); return; }
   const token = h.get('cookie')?.split(';').map(v=>v.trim()).find(v=>v.startsWith('nina_owner_session='))?.slice('nina_owner_session='.length);
-  if (!await (await import('./owner-session')).validOwnerSession(token)) throw new AppError('Owner authentication required.',401);
+  if (!await (await import('./owner-session')).validStoredOwnerSession(token, async key => { const row=await db().prepare('SELECT payload FROM workspace_state WHERE key=?').bind(key).first<{payload:string}>(); return row?JSON.parse(row.payload):null; })) throw new AppError('Owner authentication required.',401);
   if(request && !['GET','HEAD'].includes(request.method)) {
-    const expected = process.env.NEXT_PUBLIC_APP_URL;
-    if (!expected || request.headers.get('origin') !== new URL(expected).origin) throw new AppError('Invalid request origin.',403);
+    const origin = request.headers.get('origin');
+    if (!isAllowedOrigin(origin, request.url)) throw new AppError('Invalid request origin.',403);
   }
 }
 

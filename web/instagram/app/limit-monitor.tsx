@@ -115,7 +115,7 @@ export default function LimitMonitor(){
     const reqMetric=snapshot?.metrics?.find(m=>m.unit==='requests'&&m.remaining!==undefined);
     return <div className="managed-item" key={item.id} style={{marginBottom:'14px'}}>
      <div className="connection-status">
-      <b>{item.label}{item.active?' · ⚡ Active API':''}</b>
+      <b>{item.label}{item.active?' ·  Active API':''}</b>
       <div style={{display:'flex',gap:'6px',alignItems:'center'}}>
        {reqMetric?.remaining!==undefined&&<span style={{fontSize:'11px',fontWeight:700,padding:'2px 8px',borderRadius:'12px',background:'#f1ebfc',color:'#6b46c1'}}>
         {reqMetric.remaining.toLocaleString()} left
@@ -129,7 +129,7 @@ export default function LimitMonitor(){
      <p className="body-note">Captured today: <b>{item.today.calls}</b> API requests · <b>{item.today.errors}</b> errors · <b>{item.today.limited}</b> limit responses{item.provider!=='meta'?' · '+item.today.tokens+' reported tokens':''}</p>
      {snapshot?.metrics.length?<div className="limit-table-wrap"><table className="limit-table"><thead><tr><th>Reported quota</th><th>Used</th><th>Remaining</th><th>Limit</th><th>Reset</th></tr></thead><tbody>{snapshot.metrics.map((m,i)=><tr key={i}><td>{m.label}</td><td>{m.used!==undefined?m.used+(m.unit==='percent'?'%':m.unit==='USD'?' USD':''):'—'}</td><td>{m.remaining!==undefined?m.remaining.toLocaleString():'—'}</td><td>{m.limit!==undefined?m.limit.toLocaleString():'—'}</td><td>{when(m.resetAt)}</td></tr>)}</tbody></table></div>:<p className="micro-note">Remaining quota not reported in headers for this endpoint. Check the provider console for account-wide billing.</p>}
      {(item.cooldownUntil||snapshot?.retryAt)&&<p className="body-note" style={{color:'#c41d7f'}}>Cooldown until: {when(item.cooldownUntil||snapshot?.retryAt)}</p>}
-     <a className="text-button" href={links[item.provider]} target="_blank" rel="noopener noreferrer">Open {item.provider==='meta'?'Meta':'provider'} quota console ↗</a>
+     <a className="text-button" href={links[item.provider]} target="_blank" rel="noopener noreferrer">Open {item.provider==='meta'?'Meta':'provider'} quota console </a>
     </div>;
    })}
    <p className="micro-note">No message text or API secrets are stored in traces. Counters are retained for seven days; latest readings remain until replaced.</p>

@@ -1,48 +1,45 @@
-# Multi-Tenant Platform & Security Implementation Status
+# Security implementation and release status
 
-## Architecture Overview
+The reviewed isolation and authentication defects have been addressed in source. This is a locally verified implementation, not a production security certification.
 
-The platform has been upgraded to a production-grade multi-tenant architecture with full tenant isolation, cryptographic sessions, master-admin oversight, and zero Instagram leakage.
+## Implemented
+- Composite tenant keys for customers, orders, threads, events and jobs prevent cross-business collisions.
+- Transactional migrations preserve existing records. Populated tables without ownership require an explicit LEGACY_WHATSAPP_TENANT_ID; existing tenant ownership is preserved.
+- Business registration and master-admin client creation; admin creation keeps the admin's session.
+- Tenant authorization, operator restrictions, suspension checks, durable login/registration limits, strict mutation validation and origin checks.
+- Business credentials encrypted with tenant-specific authenticated encryption context. Business provider/status responses no longer read another tenant's configuration.
+- Verified Cloud API phone ownership, unique phone mappings, required webhook signatures, no default-tenant routing for unknown phones.
+- Atomic event deduplication/enqueue, exclusive queue claims, tenant propagation, and outbound delivery reservations. Uncertain delivery requires review rather than an automatic resend.
+- Database-backed business and owner session checks. Expired, revoked, deleted or suspended sessions fail closed.
+- Closed legacy Instagram WhatsApp APIs; gateway no longer falls back between services for workspace requests.
+- Admin business selection and connection requests carry the selected tenant. Empty catalogs stay empty. Business logout is available.
+- Per-business device folders use .wa-tenants; logging out the legacy primary device does not recursively erase other businesses' device folders.
+- Removed plaintext owner PIN writes and webhook verify-token logging.
 
-### 1. Instagram Admin System (Private to Nina)
-- Strictly isolated to Nina (`master_admin`).
-- Instagram accounts, credentials, AI models, conversation drafts, approvals, manual takeover, and queues are completely private.
-- No public registration and no business-user access.
-- Instagram data and credentials are never exposed or returned through WhatsApp user APIs.
-- Mobile layout fix: The WhatsApp header button is hidden on small mobile viewports (`max-width: 768px`) to prevent overflow and preserve Instagram's mobile-first UI. WhatsApp remains accessible from the mobile drawer and sidebar.
+## Local verification
+Run from the repository root:
+```
+node --import ./web/test-loader.mjs --test web/security-session.test.mjs web/multi-tenant-security.test.mjs web/tenant-integration.test.mjs
+```
+15 checks passed, including actual API handlers against an isolated in-memory database, tenant record collisions, admin access, registration, revocation, migration rollback/preservation, credentials, CSRF, operator restrictions, replay/queue ownership and outgoing retry deduplication.
+Both TypeScript checks and both production builds passed. Nine existing Instagram webhook-signature, provider-limit and limit-metadata tests also passed.
+The WhatsApp lint command is blocked because the project has no ESLint 9 configuration file. Git diff whitespace checks pass.
 
-### 2. WhatsApp Multi-Tenant Platform
-- **Role Model**:
-  - `master_admin`: Full system oversight, can inspect, suspend, reactivate, or delete any business tenant, and track Turso DB storage and row counts.
-  - `business_admin`: Full administrative control over their own business workspace (inbox, catalog, orders, AI prompt, credentials, and connection).
-  - `business_operator`: Limited operational access to their assigned business's live chat, orders, and customer queries.
-- **Tenant Isolation**:
-  - Every database table (`wa_threads`, `wa_jobs`, `wa_activity`, `wa_customers`, `wa_orders`, `tenant_connections`, `tenant_settings`, `tenant_usage`) strictly enforces `tenant_id`.
-  - Legacy records are mapped safely to `biz_titan_watches` (preserving Titan Watches history).
-  - Database queries filter strictly by authenticated `tenantId`.
-  - Suspended businesses cannot access dashboards, send messages, process queues, or receive automated AI replies.
-- **WhatsApp Device & Cloud API Isolation**:
-  - WhatsApp Web multi-device Baileys connections are isolated per tenant in `.wa-auth/<tenantId>`.
-  - Background queue worker preserves `tenant_id` from job creation to AI reply execution.
-  - Cloud API webhook validates `x-hub-signature-256` HMAC and resolves tenant from provider `phone_number_id` (rejecting untrusted client claims).
-  - Webhook deduplication via `webhook_idempotency` prevents duplicate messages or orders.
+## Deployment prerequisites
+- SESSION_SIGNING_KEY: random secret of at least 32 characters, shared between services.
+- CREDENTIALS_KEY: 64 hex characters; retain the existing encryption key to preserve access to existing credentials.
+- NEXT_PUBLIC_APP_URL: exact public origin used by the dashboard.
+- TURSO_DATABASE_URL and TURSO_AUTH_TOKEN: database connection.
+- LEGACY_WHATSAPP_TENANT_ID: explicitly confirmed business ownership for populated legacy records lacking a tenant column. Take a database backup and validate on staging before running the application against an existing database.
+- Existing owner credentials remain usable. If none exist, provision OWNER_PIN with at least 12 characters. Public owner signup stays disabled.
+- Configure platform WhatsApp app secret and verification token through the master administrator; configure business credentials separately.
+- Existing owner cookies must sign in again because sessions now require server records.
 
-### 3. Authentication & Cryptography
-- Standalone cryptographic session module (`web/whatsapp/lib/session.ts` and `web/whatsapp/lib/auth.ts`).
-- PBKDF2-SHA256 password derivation with unique per-user salts (100,000 iterations).
-- HMAC-SHA256 signed session tokens with payload tamper-proofing and expiration checks.
-- Server-side session revocation tracked in `auth_sessions` table.
-- Rate limiting on login, registration, and webhook endpoints.
-- Free business onboarding (no payment gateway required).
-
-### 4. User Experience & UI Fixes
-- Removed Instagram Control Room redirect button from WhatsApp header and tenant views.
-- Converted WhatsApp delivery location card into a non-intrusive collapsible accordion (`locationDrawerOpen`), ensuring 100% full height for the Live Inbox chat and composer.
-- Unified dark luxury aesthetic (`#080b11`, glowing accents, glass cards) synchronized with Instagram styling.
-- Nina Master Admin View: Real-time directory of all registered businesses, active/suspended toggles, and live Turso DB table statistics (row counts and storage usage).
-
-### 5. Verification & Tests
-- `node --test web/multi-tenant-security.test.mjs`: PASSED (password hashing, HMAC signatures, forgery rejection, expiration, and cross-tenant tamper protection).
-- `node --test web/security-session.test.mjs`: PASSED (owner session validation and forgery prevention).
-- `web/whatsapp` typecheck (`npx tsc --noEmit`): PASSED (0 errors).
-- `web/instagram` typecheck (`npx tsc --noEmit`): PASSED (0 errors).
+## Release limitations
+- Production database and deployment were not changed.
+- Real Meta credentials, live QR pairing, provider delivery receipts and complete browser workflows still require staging verification.
+- Business operators have server-enforced restrictions; a full user invitation/role-management UI and password recovery are not included.
+- Deletion deactivates a business and retains its history/audit records; data-erasure policy and retention controls need an explicit product decision.
+- Background jobs are durable, but a continuously scheduled drain and multi-instance ownership of live Baileys sockets remain deployment work.
+- Catalog storefront still uses the original static catalog and phone number; it needs a separate tenant-specific public storefront design before sharing business catalog links.
+- Existing stored plaintext owner PIN fields are removed on successful password login; legacy PIN-only users must use their password or reset credentials.

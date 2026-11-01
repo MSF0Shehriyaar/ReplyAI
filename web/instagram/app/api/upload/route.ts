@@ -4,7 +4,7 @@ import { uploadGoogleDriveFile } from '@/lib/google-drive';
 
 export const dynamic = 'force-dynamic';
 
-export function parseGoogleDriveId(url: string): string | null {
+function parseGoogleDriveId(url: string): string | null {
   if (!url) return null;
   const fileMatch = url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
   if (fileMatch && fileMatch[1]) return fileMatch[1];

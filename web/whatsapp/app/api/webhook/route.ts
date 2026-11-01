@@ -1,3 +1,4 @@
+import { enqueueEvent } from '@/lib/queue-ownership';
 // ─── WhatsApp Webhook — Multi-Tenant Cloud API Events ────────────────────
 import { NextRequest, NextResponse } from 'next/server';
 import {
@@ -92,7 +93,7 @@ export async function POST(request: NextRequest) {
 
         // 2. Resolve Tenant from Verified Metadata (phone_number_id)
         const phoneNumberId = value.metadata?.phone_number_id;
-        let tenantId = 'biz_titan_watches';
+        let tenantId: string | undefined;
 
         if (phoneNumberId) {
           const conn = await d
@@ -104,14 +105,16 @@ export async function POST(request: NextRequest) {
           }
         }
 
+        if (!tenantId) continue; // Unknown phones never fall back to the admin workspace.
+
         // 3. Verify Tenant is not suspended
         const tenantRow = await d
           .prepare('SELECT status, name FROM business_tenants WHERE id = ?')
           .bind(tenantId)
           .first<{ status: string; name: string }>();
 
-        if (tenantRow && tenantRow.status === 'suspended') {
-          await audit('Webhook dropped', `Dropped event for suspended tenant: ${tenantRow.name}`, tenantId);
+        if (!tenantRow || tenantRow.status !== 'active') {
+          await audit('Webhook dropped', `Dropped event for suspended tenant: ${tenantRow?.name || tenantId}`, tenantId);
           continue;
         }
 
@@ -120,23 +123,6 @@ export async function POST(request: NextRequest) {
         // 4. Process incoming messages with idempotency
         for (const msg of value.messages || []) {
           if (!msg.from || !msg.id) continue;
-
-          // Idempotency check: prevent processing same message twice
-          const msgHash = `wa_msg_${msg.id}`;
-          const existingEvent = await d
-            .prepare('SELECT id FROM webhook_idempotency WHERE id = ?')
-            .bind(msgHash)
-            .first<{ id: string }>();
-
-          if (existingEvent) {
-            console.log(`[WA Webhook] Duplicate message skipped: ${msg.id}`);
-            continue;
-          }
-
-          await d
-            .prepare('INSERT INTO webhook_idempotency (id, tenant_id, received_at) VALUES (?, ?, ?)')
-            .bind(msgHash, tenantId, Date.now())
-            .run();
 
           // Determine message text
           let text = '';
@@ -185,13 +171,8 @@ export async function POST(request: NextRequest) {
             tenantId,
           };
 
-          const r = await d
-            .prepare(
-              "INSERT OR IGNORE INTO wa_jobs (id,thread_id,payload,status,attempts,created,tenant_id) VALUES (?,?,?,'pending',0,?,?)"
-            )
-            .bind(event.id, event.threadId, JSON.stringify(event), Date.now(), tenantId)
-            .run();
-          count += r.meta.changes ?? 0;
+          if (await enqueueEvent(tenantId,event)) count++;
+
         }
 
         // Track delivery status updates
