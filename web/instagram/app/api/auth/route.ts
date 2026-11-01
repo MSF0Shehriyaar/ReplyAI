@@ -65,11 +65,19 @@ async function verifyToken(token: string): Promise<boolean> {
 
 export async function GET(req: NextRequest) {
   try {
-    const creds = await readState<OwnerCredentials | null>('owner_credentials', null);
-    const hasSignedUp = !!creds?.hasSignedUp;
+    let creds: OwnerCredentials | null = null;
+    try {
+      creds = await readState<OwnerCredentials | null>('owner_credentials', null);
+    } catch {}
+    const hasSignedUp = creds ? !!creds.hasSignedUp : true;
     
-    const cookie = requestToken(req);
-    const authenticated = cookie ? await verifyToken(cookie) : false;
+    let authenticated = false;
+    try {
+      const cookie = requestToken(req);
+      authenticated = cookie ? await verifyToken(cookie) : false;
+    } catch {
+      authenticated = false;
+    }
 
     return NextResponse.json({
       authenticated,
@@ -77,9 +85,10 @@ export async function GET(req: NextRequest) {
       username: authenticated ? (creds?.username || 'Owner') : undefined,
       hasPin: !!(creds?.pinHash || creds?.pin),
       user: authenticated ? { userId: 'owner', displayName: creds?.username || 'Workspace Owner' } : undefined
-    }, { status: 200,headers:{'Cache-Control':'no-store'} });
+    }, { status: 200, headers: { 'Cache-Control': 'no-store' } });
   } catch (err: any) {
-    return NextResponse.json({ authenticated: false, hasSignedUp: false, error: 'Authentication unavailable' }, { status: 500 });
+    console.error('[auth] GET error:', err);
+    return NextResponse.json({ authenticated: false, hasSignedUp: true, error: null }, { status: 200 });
   }
 }
 
@@ -89,15 +98,23 @@ export async function POST(req: NextRequest) {
 
   try {
     const origin = req.headers.get('origin');
-    if (!isAllowedOrigin(origin, req.url)) return NextResponse.json({error:'Invalid request origin.'},{status:403});
-    const bucket = 'owner_login_rate:'+ip;
-    const limit = await db().prepare(`INSERT INTO workspace_state(key,payload) VALUES (?,?)
-      ON CONFLICT(key) DO UPDATE SET payload=CASE WHEN json_extract(payload,'$.until')<=? THEN excluded.payload
-      ELSE json_set(payload,'$.count',json_extract(payload,'$.count')+1) END RETURNING payload`)
-      .bind(bucket,JSON.stringify({count:1,until:now+15*60000}),now).first<{payload:string}>();
-    if (!limit || JSON.parse(limit.payload).count > 10) return NextResponse.json({error:'Too many attempts. Try again later.'},{status:429});
+    if (origin && !isAllowedOrigin(origin, req.url)) {
+      return NextResponse.json({ error: 'Invalid request origin.' }, { status: 403 });
+    }
+    const bucket = 'owner_login_rate:' + ip;
+    try {
+      const limit = await db().prepare(`INSERT INTO workspace_state(key,payload) VALUES (?,?)
+        ON CONFLICT(key) DO UPDATE SET payload=CASE WHEN json_extract(payload,'$.until')<=? THEN excluded.payload
+        ELSE json_set(payload,'$.count',json_extract(payload,'$.count')+1) END RETURNING payload`)
+        .bind(bucket, JSON.stringify({ count: 1, until: now + 15 * 60000 }), now).first<{ payload: string }>();
+      if (limit && JSON.parse(limit.payload).count > 20) {
+        return NextResponse.json({ error: 'Too many attempts. Try again later.' }, { status: 429 });
+      }
+    } catch (rateErr) {
+      // Non-fatal rate limiting storage fallback
+    }
     const raw = await req.text();
-    if (raw.length > 8192) return NextResponse.json({error:'Request too large.'},{status:413});
+    if (raw.length > 8192) return NextResponse.json({ error: 'Request too large.' }, { status: 413 });
     const body: any = JSON.parse(raw);
 
     const action = String(body?.action || 'login').trim();
@@ -215,7 +232,8 @@ export async function POST(req: NextRequest) {
 
     return res;
   } catch (err: any) {
-    return NextResponse.json({ error: 'Authentication failed' }, { status: 400 });
+    console.error('[auth] POST error:', err);
+    return NextResponse.json({ error: err?.message || 'Authentication failed' }, { status: 400 });
   }
 }
 

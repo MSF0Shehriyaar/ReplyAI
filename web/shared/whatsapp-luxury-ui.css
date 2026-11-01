@@ -1,8 +1,53 @@
 /* ══════════════════════════════════════════════════════════════
-   WhatsApp Automation & Nina Admin — Luxury Mobile-First CSS
+   WhatsApp Automation & Nina Admin — Unified Luxury Mobile-First CSS
    ══════════════════════════════════════════════════════════════ */
 
-/* Category Chips */
+/* ── Device Connection & QR View ────────────────────────────── */
+.wa-device {width:100%;max-width:860px;margin:0 auto;padding:20px 12px 48px;color:#21352c;}
+.wa-device-status {display:flex;align-items:center;gap:16px;padding:20px 22px;margin-bottom:20px;background:#fff;border:1px solid #dce5df;border-radius:14px;box-shadow:0 2px 10px #1d382705;}
+.wa-device-status-icon {display:grid;place-items:center;flex:0 0 44px;height:44px;border-radius:12px;background:#f0f4f1;color:#4c6859;border:1px solid #e2e9e4;}
+.wa-device-status-copy {flex:1;min-width:0;}
+.wa-device-status-heading {display:flex;align-items:center;flex-wrap:wrap;gap:10px;}
+.wa-device-status h1 {font-size:16px;font-weight:650;letter-spacing:-.2px;line-height:1.4;margin:0;color:#21352c;}
+.wa-device-status p {font-size:13px;line-height:1.6;margin:6px 0 0;color:#586d60;max-width:580px;}
+.wa-device-badge {display:inline-flex;align-items:center;gap:5px;border-radius:20px;border:1px solid #dce4df;padding:3px 8px;background:#f4f6f4;color:#526459;font-size:11px;font-weight:600;white-space:nowrap;}
+.wa-device-badge>span {width:5px;height:5px;border-radius:50%;background:currentColor;}
+.wa-device-status[data-status=connected] .wa-device-badge {background:#edf7f1;color:#176442;border-color:#cce5d5;}
+.wa-device-status[data-status=scan] .wa-device-badge,.wa-device-status[data-status=connecting] .wa-device-badge {background:#fff7e9;color:#825b16;border-color:#eddcba;}
+.wa-device-refresh {display:grid;place-items:center;flex:0 0 40px;width:40px;height:40px;min-height:40px;border:1px solid #d8e3dc;border-radius:9px;background:#fff;color:#526b5b;cursor:pointer;}
+.wa-device-refresh:hover {background:#f2f6f3;}
+.wa-device-card {padding:42px 36px 30px;background:#fff;border:1px solid #dce5df;border-radius:18px;text-align:center;box-shadow:0 4px 24px #1d382705;}
+.wa-device-hero-icon {display:grid;place-items:center;width:64px;height:64px;margin:0 auto 22px;border-radius:18px;background:#f5f0fc;border:1px solid #ebdcfc;color:#7354da;}
+.wa-device-eyebrow {display:block;margin:0 0 10px;color:#7354da;font-size:10px;font-weight:650;letter-spacing:1.6px;}
+.wa-device-card h2 {font-size:clamp(23px,3vw,29px);font-weight:650;letter-spacing:-.7px;line-height:1.25;margin:0 0 14px;color:#21352c;}
+.wa-device-description {max-width:470px;margin:0 auto;color:#586d60;font-size:14px;line-height:1.7;}
+.wa-device-features {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:30px auto;max-width:620px;text-align:left;}
+.wa-device-feature {padding:18px;border:1px solid #e3eae5;border-radius:11px;background:#fcfdfc;}
+.wa-device-feature>svg {color:#7354da;margin-bottom:10px;}
+.wa-device-feature h3 {font-size:13px;font-weight:650;line-height:1.5;color:#2e4738;margin:0 0 4px;}
+.wa-device-feature p {font-size:12px;line-height:1.6;color:#586d60;margin:0;}
+.wa-device-primary,.wa-device-disconnect {display:inline-flex;align-items:center;justify-content:center;gap:9px;min-height:46px;padding:12px 20px;border-radius:9px;font-size:14px;font-weight:600;line-height:1.4;}
+.wa-device-primary {border:1px solid #7354da;background:#7354da;color:#fff;box-shadow:0 3px 10px rgba(115,84,218,0.25);}
+.wa-device-primary:hover:not(:disabled) {background:#6242ca;}
+.wa-device-primary:disabled {background:#eef3ef;color:#586d60;border-color:#d8e3dc;box-shadow:none;}
+.wa-device-disconnect {margin-top:24px;border:1px solid #e8cfc9;background:#fff7f5;color:#9b4034;}
+.wa-device-footnote {margin:14px auto 0;max-width:460px;font-size:12px;line-height:1.6;color:#627568;}
+.wa-device-error {padding:12px 16px;margin-bottom:16px;color:#903a2f;background:#fff1ed;border:1px solid #e8c9c0;border-radius:10px;font-size:13px;}
+.wa-device-connected-note {display:flex;align-items:center;justify-content:center;gap:8px;padding:16px;margin:24px auto 0;max-width:500px;background:#f1f7f3;color:#3b664b;border-radius:10px;font-size:13px;}
+.wa-device-qr {width:fit-content;max-width:100%;margin:24px auto;padding:16px;border:1px solid #dce5df;background:#fff;border-radius:16px;}
+.wa-device-qr img {display:block;width:240px;max-width:100%;height:auto;}
+.wa-device-steps {counter-reset:steps;list-style:none;max-width:390px;padding:0;margin:24px auto;text-align:left;}
+.wa-device-steps li {display:flex;align-items:flex-start;gap:10px;font-size:13px;color:#425d4b;margin:12px 0;line-height:1.6;}
+.wa-device-steps li::before {counter-increment:steps;content:counter(steps);flex:0 0 22px;text-align:center;background:#f5f0fc;border:1px solid #ebdcfc;color:#7354da;border-radius:50%;font-size:12px;line-height:22px;}
+
+/* ── Store Profile & Settings ────────────────────────────────── */
+.wa-settings-page{width:100%;max-width:1120px;margin:auto;padding:24px 16px 48px;color:var(--workspace-ink);}.wa-settings-page>header{max-width:700px;margin-bottom:24px;}.wa-settings-icon{width:46px;height:46px;display:grid;place-items:center;border:1px solid var(--workspace-line);border-radius:13px;background:var(--workspace-soft);color:var(--workspace-accent);margin-bottom:16px;}
+.wa-settings-eyebrow{font-size:11px!important;letter-spacing:1.5px;font-weight:650;color:var(--workspace-accent)!important;}.wa-settings-page h1{font-size:clamp(26px,4vw,34px);letter-spacing:-.8px;line-height:1.2;margin:8px 0 12px;}.wa-settings-page p{font-size:14px;line-height:1.65;color:var(--workspace-muted);}.wa-settings-notice{display:flex;align-items:flex-start;gap:12px;padding:16px 18px;border:1px solid var(--workspace-line);border-radius:12px;background:var(--workspace-soft);margin-bottom:24px;}.wa-settings-notice svg{flex-shrink:0;color:var(--workspace-accent);margin-top:3px;}.wa-settings-notice p{margin:0;font-size:13px;}
+.wa-settings-card{min-width:0;background:var(--workspace-surface);border:1px solid var(--workspace-line);border-radius:14px;padding:20px;margin:0 0 24px;}.wa-settings-card legend{padding:0 8px;font-size:16px;font-weight:650;}.wa-settings-fields{display:grid;grid-template-columns:1fr;gap:20px;}.wa-settings-fields label{display:flex;flex-direction:column;gap:8px;min-width:0;}.wa-settings-fields label>span{font-size:13px;font-weight:600;}.wa-settings-fields small{font-size:12px;line-height:1.55;color:var(--workspace-muted);}.wa-settings-fields input,.wa-settings-fields textarea,.wa-settings-fields select{width:100%;padding:11px 12px;border:1px solid var(--workspace-line);border-radius:8px;background:var(--workspace-surface);color:var(--workspace-ink);font:inherit;min-height:44px;}.wa-settings-wide{grid-column:1/-1;}
+.wa-settings-save{display:flex;align-items:flex-start;flex-direction:column;gap:12px;}.wa-settings-save p{margin:0;font-size:12px;}.wa-settings-save button,.wa-settings-action{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:12px 18px;background:var(--workspace-accent);color:white;border:0;border-radius:9px;min-height:44px;font-weight:600;font-size:14px;}.wa-settings-error{padding:14px;background:#fff1ed;color:#913d32;border:1px solid #eccfc6;border-radius:9px;margin-bottom:18px;}
+.wa-settings-toggle{display:flex;justify-content:space-between;align-items:flex-start;gap:18px;padding:14px 0;border-bottom:1px solid var(--workspace-line);}.wa-settings-toggle:last-child{border-bottom:0;}.wa-settings-toggle span{font-size:14px;font-weight:600;}.wa-settings-toggle small{display:block;color:var(--workspace-muted);font-size:12px;line-height:1.6;margin-top:4px;font-weight:400;}.wa-settings-toggle input{width:20px;height:20px;flex:none;margin-top:2px;accent-color:var(--workspace-accent);}
+
+/* ── Category Chips & Publication ───────────────────────────── */
 .wa-category-chip {
   display: inline-flex !important;
   align-items: center !important;
@@ -18,7 +63,6 @@
   margin: 3px !important;
 }
 
-/* Publication Card */
 .wa-publication {
   background: #ffffff !important;
   border: 1px solid #e2e8f0 !important;
@@ -71,7 +115,6 @@
   box-shadow: 0 4px 12px rgba(115, 84, 218, 0.25) !important;
 }
 
-/* Category Manager Container */
 .wa-category-manager {
   background: #ffffff !important;
   border: 1px solid #e2e8f0 !important;
@@ -138,7 +181,7 @@
   margin: 2px !important;
 }
 
-/* Master Admin Top Header */
+/* ── Master Admin Top Header ────────────────────────────────── */
 .private-service-header {
   display: flex !important;
   align-items: center !important;
@@ -187,7 +230,7 @@
   box-shadow: 0 2px 8px rgba(115, 84, 218, 0.25) !important;
 }
 
-/* Mobile-First Navigation Bar */
+/* ── Mobile-First Navigation Bar ────────────────────────────── */
 .wa-nav-bar {
   display: flex !important;
   align-items: center !important;
@@ -230,7 +273,7 @@
   box-shadow: inset 0 0 0 1px #7354da30 !important;
 }
 
-/* Mobile Responsiveness ≤ 768px */
+/* ── Mobile Responsiveness ≤ 768px ───────────────────────────── */
 @media (max-width: 768px) {
   .private-service-header {
     flex-direction: column !important;
@@ -263,4 +306,20 @@
     padding: 4px 8px !important;
     font-size: 11px !important;
   }
+  .wa-device {padding:6px 0 28px;}
+  .wa-device-status {gap:12px;padding:16px;margin-bottom:14px;align-items:flex-start;}
+  .wa-device-status-icon {flex-basis:36px;height:36px;border-radius:10px;}
+  .wa-device-status-heading {gap:6px;}
+  .wa-device-status h1 {font-size:14px;}
+  .wa-device-status p {font-size:12px;}
+  .wa-device-refresh {flex-basis:36px;width:36px;height:36px;min-height:36px;}
+  .wa-device-card {padding:28px 18px 24px;border-radius:14px;}
+  .wa-device-features {gap:10px;margin:24px 0;grid-template-columns:1fr;}
+  .wa-device-feature {padding:14px;}
+  .wa-device-primary,.wa-device-disconnect {width:100%;}
+  .wa-settings-page{padding:20px 12px 40px;}
+  .wa-settings-fields{grid-template-columns:1fr;}
+  .wa-settings-card{padding:16px;}
+  .wa-settings-save{flex-direction:column;width:100%;}
+  .wa-settings-save button{width:100%;}
 }

@@ -169,10 +169,12 @@ export default function BusinessDashboard({onSessionExpired,identity,apiBase='/b
     if (filterStatus !== 'all' && t.status !== filterStatus) return false;
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
+      const tName = (t.name || (t as any).customerName || t.customerProfile?.name || '').toLowerCase();
+      const tPhone = (t.phone || (t as any).customerPhone || t.customerProfile?.phone || '');
       return (
-        t.name.toLowerCase().includes(q) ||
-        t.phone.includes(q) ||
-        t.messages.some((m) => m.text.toLowerCase().includes(q))
+        tName.includes(q) ||
+        tPhone.includes(q) ||
+        (t.messages || []).some((m) => (m.text || '').toLowerCase().includes(q))
       );
     }
     return true;
@@ -563,8 +565,8 @@ function InboxView({
               >
                 <div style={ui.threadCardTop}>
                   <div style={ui.clientName}>
-                    {t.customerProfile?.vip && ' '}
-                    {t.name}
+                    {t.customerProfile?.vip && '⭐ '}
+                    {t.name || (t as any).customerName || t.customerProfile?.name || 'Customer'}
                   </div>
                   <span
                     style={{
@@ -591,8 +593,8 @@ function InboxView({
 
                 <div style={ui.threadMetaRow}>
                   <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                    <span style={{ color: '#64748b', fontSize: 12 }}>{t.phone}</span>
-                    {t.tags.includes('order_confirmed') && (
+                    <span style={{ color: '#64748b', fontSize: 12 }}>{t.phone || (t as any).customerPhone || t.customerProfile?.phone || ''}</span>
+                    {((t.tags || (t as any).customerProfile?.tags || [])).includes('order_confirmed') && (
                       <span
                         style={{
                           fontSize: 12,
@@ -1020,14 +1022,14 @@ function AnalyticsView({
         <div style={ui.statCard}>
           <div style={{ fontSize: 28, marginBottom: 4 }}></div>
           <div style={{ ...ui.statBigNum, color: '#956213' }}>
-            {threads.filter((t) => t.tags.includes('hot_lead') || t.tags.includes('order_inquiry')).length}
+            {threads.filter((t) => ((t.tags || (t as any).customerProfile?.tags || [])).includes('hot_lead') || ((t.tags || (t as any).customerProfile?.tags || [])).includes('order_inquiry')).length}
           </div>
           <div style={ui.statSub}>High Intent / Ready to Buy</div>
         </div>
         <div style={ui.statCard}>
           <div style={{ fontSize: 28, marginBottom: 4 }}></div>
           <div style={{ ...ui.statBigNum, color: '#0d7357' }}>
-            {threads.filter((t) => t.customerProfile?.vip || t.tags.includes('luxury_buyer')).length}
+            {threads.filter((t) => t.customerProfile?.vip || ((t.tags || (t as any).customerProfile?.tags || [])).includes('luxury_buyer')).length}
           </div>
           <div style={ui.statSub}>Luxury / VIP Clients</div>
         </div>

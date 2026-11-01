@@ -1,10 +1,27 @@
 'use client';
 
 import { useCallback, useState, useRef, useEffect } from 'react';
+import dynamic from 'next/dynamic';
 import { ArrowLeft, Sparkles, Building2, ShieldCheck, ChevronRight, Plus } from 'lucide-react';
-import NinaAdmin from './nina-admin';
-import BusinessDashboard from '../../../whatsapp/app/business-dashboard';
 import type { AdminSnapshot } from '../../../whatsapp/lib/admin-model';
+
+const BusinessDashboard = dynamic(
+  () => import('../../../whatsapp/app/business-dashboard'),
+  {
+    ssr: false,
+    loading: () => (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '80px 20px', gap: 12, color: '#7354da' }}>
+        <div style={{ width: 24, height: 24, borderRadius: '50%', border: '2.5px solid #e0d5f8', borderTopColor: '#7354da', animation: 'spin 0.8s linear infinite' }} />
+        <span style={{ fontSize: 14, fontWeight: 600 }}>Opening workspace…</span>
+      </div>
+    ),
+  }
+);
+
+const NinaAdmin = dynamic(
+  () => import('./nina-admin'),
+  { ssr: false }
+);
 
 const base = '/api/whatsapp-service';
 

@@ -18,7 +18,18 @@ export default function PublicationSettings({
   const [success, setSuccess] = useState(false);
 
   const formattedSlug = slug.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-');
-  const liveUrl = publication?.url || (slug ? `/business/catalog/${slug}` : '');
+  
+  // Resolve current origin safely (never force production domain on localhost/demo)
+  const isDemo = typeof window !== 'undefined' && (window.location.port === '4173' || window.location.pathname.startsWith('/catalog'));
+  const origin = typeof window !== 'undefined'
+    ? window.location.origin
+    : (process.env.NODE_ENV === 'production' ? 'https://automation.ninakurainservices.in' : 'http://localhost:3000');
+  
+  const pathPrefix = isDemo ? '/catalog/' : '/business/catalog/';
+  const fullLiveUrl = `${origin}${pathPrefix}${formattedSlug || 'your-chosen-slug'}`;
+  const liveUrl = publication?.url?.startsWith('http')
+    ? publication.url
+    : (slug ? `${origin}${pathPrefix}${formattedSlug}` : '');
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -87,13 +98,13 @@ export default function PublicationSettings({
           </label>
           <div style={styles.slugInputWrapper}>
             <span style={styles.slugPrefix}>
-              /business/catalog/
+              {pathPrefix}
             </span>
             <input
               type="text"
               value={slug}
               maxLength={64}
-              placeholder="e.g. nina-collection"
+              placeholder="e.g. titan-watches"
               pattern="[a-z0-9][a-z0-9-]{1,62}[a-z0-9]"
               onChange={event => setSlug(event.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
               style={styles.slugInput}
@@ -102,7 +113,7 @@ export default function PublicationSettings({
           <small style={styles.fieldHint}>
             Full URL:{' '}
             <strong style={{ color: '#7354da', wordBreak: 'break-all' }}>
-              https://automation.ninakurainservices.in/business/catalog/{formattedSlug || 'your-chosen-slug'}
+              {fullLiveUrl}
             </strong>
           </small>
         </div>
