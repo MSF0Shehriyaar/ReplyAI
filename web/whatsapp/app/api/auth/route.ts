@@ -58,11 +58,11 @@ export async function GET(request: NextRequest) {
       },
       tenant: tenant || {
         id: session.tenantId,
-        name: 'Titan Watches',
+        name: 'Business workspace',
         status: 'active',
         themeColor: '#10b981',
       },
-      isNinaAdmin: session.role === 'master_admin',
+      ...(session.role==='master_admin'?{isNinaAdmin:true}:{}),
     });
   } catch (e) {
     return errorResponse(e);
@@ -73,11 +73,11 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     await initDatabase();
-    requireOrigin(request);
     const parsed=authSchema.safeParse(await readJSON(request,8192));
     if (!parsed.success) throw new AppError('Check the sign-in or registration fields. Passwords must have at least 12 characters.',400);
     const body:any=parsed.data;
     const action = String(body.action || '').trim().toLowerCase();
+    if(!(action==='logout'&&request.headers.get('authorization')?.startsWith('Bearer ')&&await getAuthSession(request)))requireOrigin(request);
     const ip = request.headers.get('x-forwarded-for')?.split(',')[0].trim() || '127.0.0.1';
 
     // ── ACTION: LOGIN ─────────────────────────────────────────────────────
@@ -98,7 +98,7 @@ export async function POST(request: NextRequest) {
         .bind(email)
         .first<any>();
 
-      if (!user) {
+      if (!user || user.role==='master_admin' || !user.tenant_id) {
         await audit('Login failed','Business sign-in rejected');
         throw new AppError('Invalid credentials.', 401);
       }
@@ -135,7 +135,7 @@ export async function POST(request: NextRequest) {
           email: user.email,
           name: user.name,
           role: user.role,
-          tenantId: user.tenant_id || 'biz_titan_watches',
+          tenantId: user.tenant_id,
         },
         {
           ip,
@@ -154,7 +154,7 @@ export async function POST(request: NextRequest) {
           role: session.role,
           tenantId: session.tenantId,
         },
-        isNinaAdmin: session.role === 'master_admin',
+        ...(session.role==='master_admin'?{isNinaAdmin:true}:{}),
       });
 
       res.cookies.set(SESSION_COOKIE_NAME, token, {
@@ -255,7 +255,6 @@ export async function POST(request: NextRequest) {
           role: session.role,
           tenantId: session.tenantId,
         },
-        isNinaAdmin: false,
       });
 
       res.cookies.set(SESSION_COOKIE_NAME, token, {
@@ -290,7 +289,7 @@ export async function POST(request: NextRequest) {
         if(business) await revokeSession(business.jti);
       }
       const res = NextResponse.json({ ok: true });
-      res.cookies.delete('nina_owner_session');
+      if(session?.role==='master_admin')res.cookies.delete('nina_owner_session');
       res.cookies.set(SESSION_COOKIE_NAME, '', {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',

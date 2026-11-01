@@ -1,5 +1,8 @@
 export async function validOwnerSession(token: string | undefined): Promise<boolean> {
   try {
+    // Cookie serializers percent-encode base64 padding. Both raw HTTP headers
+    // and Next's decoded cookie values must verify the same signed token.
+    token=decodeURIComponent(token || '').replace(/^"|"$/g,'');
     const secret = process.env.SESSION_SIGNING_KEY;
     if (!secret || secret.length < 32 || !token) return false;
     const parts = token.split('.');
@@ -17,6 +20,7 @@ export async function validOwnerSession(token: string | undefined): Promise<bool
 export async function validStoredOwnerSession(token: string | undefined, lookup: (key: string) => Promise<any>): Promise<boolean> {
   if (!await validOwnerSession(token)) return false;
   try {
+    token=decodeURIComponent(token || '').replace(/^"|"$/g,'');
     const payload = JSON.parse(atob(token!.split('.')[0]));
     if (typeof payload.jti !== 'string' || !/^[a-f0-9-]{36}$/.test(payload.jti)) return false;
     const session = await lookup('owner_session:' + payload.jti);

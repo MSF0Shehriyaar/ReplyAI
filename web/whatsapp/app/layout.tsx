@@ -1,8 +1,9 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import '../../shared/product-theme.css';
 
 export const metadata: Metadata = {
-  title: 'WhatsApp Command Center — Nina Kurain Services',
+  title: 'WhatsApp Business Workspace',
   description: 'Premium WhatsApp automation and customer support control center',
 };
 

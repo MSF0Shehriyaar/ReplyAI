@@ -52,6 +52,8 @@ class WhatsAppClient extends EventEmitter {
   private messageHandler: ((msg: any) => Promise<void>) | null = null;
   private isConnecting = false;
   private reconnectTimer: NodeJS.Timeout | null = null;
+  private connectionError='';
+  private ownershipCheck:Promise<void>|null=null;
 
   public readonly tenantId: string;
 
@@ -97,6 +99,7 @@ class WhatsAppClient extends EventEmitter {
       connectedPhone: this.connectedPhone,
       connectedName: this.connectedName,
       reconnectAttempts: this.reconnectAttempts,
+      error:this.connectionError || undefined,
     };
   }
 
@@ -112,6 +115,8 @@ class WhatsAppClient extends EventEmitter {
       return;
     }
     this.isConnecting = true;
+    this.connectionError='';
+    this.ownershipCheck=null;
 
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
@@ -193,6 +198,17 @@ class WhatsAppClient extends EventEmitter {
         }
 
         if (connection === 'open') {
+          this.ownershipCheck=(async()=>{
+          try {
+            const phone=sock.user?.id?.split('@')[0].split(':')[0] || '';
+            const {claimWhatsAppNumber}=await import('./number-ownership');
+            await claimWhatsAppNumber(this.tenantId,phone);
+          }catch {
+            this.connectionError='This number could not be assigned to this business. It may already belong to another workspace. Contact the administrator.';
+            this.isConnecting=false;
+            await this.disconnect();
+            return;
+          }
           this.isConnecting = false;
           this.state = 'connected';
           this.reconnectAttempts = 0;
@@ -206,7 +222,7 @@ class WhatsAppClient extends EventEmitter {
           // Extract connected user info
           const me = this.sock?.user;
           if (me) {
-            this.connectedPhone = me.id.split(':')[0] || me.id.split('@')[0] || '';
+            this.connectedPhone = me.id.split('@')[0].split(':')[0] || '';
             this.connectedName = me.name || '';
           }
 
@@ -216,11 +232,15 @@ class WhatsAppClient extends EventEmitter {
           });
           this.emit('state', this.state);
           console.log(`[WA] Connected as ${this.connectedName} (${this.connectedPhone})`);
+          })();
+          await this.ownershipCheck;
         }
       });
 
       // Handle incoming messages
       sock.ev.on('messages.upsert', async ({ messages, type }: any) => {
+        if(this.ownershipCheck)await this.ownershipCheck;
+        if(!this.isConnected())return;
         if (type !== 'notify') return;
 
         for (const msg of messages) {
@@ -307,7 +327,7 @@ class WhatsAppClient extends EventEmitter {
               await this.messageHandler({ ...event, tenantId: this.tenantId });
             } else {
               const { handleIncomingMessage } = await import('./message-handler');
-              await handleIncomingMessage(event);
+              await handleIncomingMessage({...event,tenantId:this.tenantId});
             }
           } catch (e) {
             console.error('[WA] Message handler error:', e);
@@ -353,6 +373,8 @@ class WhatsAppClient extends EventEmitter {
     this.connectedName = '';
 
     // Clean auth files
+    const {db}=await import('./server');
+    await db().prepare('DELETE FROM whatsapp_number_owners WHERE tenant_id=?').bind(this.tenantId).run();
     const fs = await import('fs');
     const expected=resolve(process.cwd(),this.tenantId==='biz_titan_watches'?'.wa-auth':'.wa-tenants/'+this.tenantId);
     if(resolve(this.authDir)!==expected || !expected.startsWith(resolve(process.cwd())+sep)) throw new Error('Invalid device storage path');
@@ -396,10 +418,13 @@ class WhatsAppClient extends EventEmitter {
 
     // Natural human typing indicator
     try {
+      const {settings}=await import('./server');
+      if((await settings(this.tenantId)).typingIndicator) {
       await this.sock.sendPresenceUpdate('composing', targetJid);
       const typingDelay = Math.min(Math.max(text.length * 35, 1200), 3500);
       await new Promise((r) => setTimeout(r, typingDelay));
       await this.sock.sendPresenceUpdate('paused', targetJid);
+      }
     } catch {}
 
     const result = await this.sock.sendMessage(targetJid, { text });
@@ -446,4 +471,7 @@ export function getWhatsAppClient(tenantId: string = 'biz_titan_watches'): Whats
 }
 
 export { WhatsAppClient };
+export function knownWhatsAppDevices() {
+  return new Map([...(globalForWA.__waClients?.entries()||[])].map(([id,client])=>[id,{state:client.getState(),phone:client.getConnectedPhone()}]));
+}
 

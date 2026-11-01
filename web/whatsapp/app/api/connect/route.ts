@@ -24,6 +24,9 @@ export async function GET(request: NextRequest) {
 
     const client = getWhatsAppClient(tenantId);
     const status = client.getStatus();
+    const {db,tenantSecret}=await import('@/lib/server');
+    const connection=await db().prepare("SELECT phone_number_id,display_phone_number FROM tenant_connections WHERE tenant_id=? AND provider='cloud'").bind(tenantId).first<{phone_number_id:string;display_phone_number:string}>();
+    if(connection?.phone_number_id&&await tenantSecret(tenantId,'wa_access_token'))return NextResponse.json({...status,state:'connected',connectedPhone:connection.display_phone_number||'',provider:'cloud'});
     return NextResponse.json(status);
   } catch (e) {
     return errorResponse(e);

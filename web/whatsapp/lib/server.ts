@@ -31,6 +31,8 @@ import {
 import { createTursoAdapter } from './turso';
 import { migrateTenantTables } from './tenant-migration';
 import { RequestError } from './request-security';
+import {missingBusinessProfile} from './business-profile';
+import {OWNER_WORKSPACE_ID,ownerWhatsAppSettings} from './owner-workspace';
 
 const env: any = typeof process !== 'undefined' ? process.env : {};
 
@@ -75,6 +77,11 @@ export async function initDatabase() {
 }
 async function initializeDatabase() {
   const d = db();
+  await d.exec('CREATE TABLE IF NOT EXISTS workspace_state(key TEXT PRIMARY KEY,payload TEXT NOT NULL)');
+  await d.exec('CREATE TABLE IF NOT EXISTS tenant_daily_usage(tenant_id TEXT NOT NULL,day TEXT NOT NULL,calls INTEGER NOT NULL DEFAULT 0,tokens INTEGER NOT NULL DEFAULT 0,sent INTEGER NOT NULL DEFAULT 0,received INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(tenant_id,day))');
+  await d.exec('CREATE TABLE IF NOT EXISTS whatsapp_number_owners(phone TEXT PRIMARY KEY,tenant_id TEXT NOT NULL UNIQUE,updated_at INTEGER NOT NULL)');
+  await d.exec('CREATE TABLE IF NOT EXISTS auto_rule_daily(tenant_id TEXT NOT NULL,rule_id TEXT NOT NULL,day TEXT NOT NULL,uses INTEGER NOT NULL,PRIMARY KEY(tenant_id,rule_id,day))');
+  await d.exec('CREATE TABLE IF NOT EXISTS auto_rule_threads(tenant_id TEXT NOT NULL,rule_id TEXT NOT NULL,thread_id TEXT NOT NULL,last_used INTEGER NOT NULL,PRIMARY KEY(tenant_id,rule_id,thread_id))');
 
   // 1. Business Tenants (Multi-tenant organizations)
   await d.exec(`
@@ -127,6 +134,11 @@ async function initializeDatabase() {
   `);
   await d.exec(`CREATE INDEX IF NOT EXISTS idx_asess_user ON auth_sessions(user_id)`);
   await d.exec(`CREATE INDEX IF NOT EXISTS idx_asess_exp ON auth_sessions(expires_at)`);
+  const sessionColumns=(await d.prepare('PRAGMA table_info(auth_sessions)').all<{name:string}>()).results;
+  if(!sessionColumns.some(column=>column.name==='last_seen_at')) {
+    try {await d.exec('ALTER TABLE auth_sessions ADD COLUMN last_seen_at INTEGER');}
+    catch(error) {if(!(await d.prepare('PRAGMA table_info(auth_sessions)').all<{name:string}>()).results.some(column=>column.name==='last_seen_at'))throw error;}
+  }
 
   // 4. Tenant Connections (Per-tenant WhatsApp metadata & credentials)
   await d.exec(`
@@ -203,7 +215,12 @@ async function initializeDatabase() {
     )
   `);
 
-  // ── Seed Master Tenant & Initial Account (Titan Watches) ───────────────
+  await d.exec(`CREATE TABLE IF NOT EXISTS catalog_publications(tenant_id TEXT PRIMARY KEY,slug TEXT UNIQUE,published INTEGER NOT NULL DEFAULT 0,updated_at INTEGER NOT NULL)`);
+  await d.exec(`CREATE TABLE IF NOT EXISTS catalog_checkouts(id TEXT PRIMARY KEY,tenant_id TEXT NOT NULL,reference_hash TEXT UNIQUE NOT NULL,customer_hash TEXT NOT NULL,request_key TEXT NOT NULL,fingerprint TEXT NOT NULL,items TEXT NOT NULL,address_cipher TEXT NOT NULL,amount REAL NOT NULL,currency TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending_chat',created_at INTEGER NOT NULL,expires_at INTEGER NOT NULL,order_id TEXT,UNIQUE(tenant_id,request_key))`);
+  await d.exec('CREATE INDEX IF NOT EXISTS idx_catalog_checkout_tenant ON catalog_checkouts(tenant_id,status,expires_at)');
+  await d.exec('CREATE INDEX IF NOT EXISTS idx_catalog_checkout_expiry ON catalog_checkouts(status,expires_at)');
+
+  // Private owner setup. Sample businesses belong only in the standalone demo.
   try {
     const existingTenant = await d
       .prepare('SELECT id FROM business_tenants WHERE id = ?')
@@ -219,18 +236,21 @@ async function initializeDatabase() {
         )
         .bind(
           'biz_titan_watches',
-          'Titan Watches',
           'Nina Kurain',
-          'nina@ninakurainservices.in',
-          '+91 99000 12345',
-          'Luxury Watches & Boutique',
-          'Timeless Craftsmanship, Modern Innovation',
-          '#10b981',
+          'Nina Kurain',
+          'insta.ninak12@gmail.com',
+          '',
+          'Creator & community conversations',
+          'Thoughtful conversations, in my own voice.',
+          '#6550c8',
           'active',
           now,
           now
         )
         .run();
+      const row=await d.prepare('SELECT payload FROM workspace_state WHERE key=?').bind('settings').first<{payload:string}>();
+      const profile=ownerWhatsAppSettings(row?JSON.parse(row.payload):{});
+      await d.prepare('INSERT OR IGNORE INTO tenant_settings(tenant_id,payload,updated_at) VALUES (?,?,?)').bind(OWNER_WORKSPACE_ID,JSON.stringify(profile),now).run();
     }
   } catch (err: any) {
     console.warn('[DB Seed] business_tenants seed notice:', err?.message);
@@ -312,12 +332,12 @@ export async function secret(key: string): Promise<string | null> {
 // ── Settings ────────────────────────────────────────────────────────────
 
 export function freshBusinessSettings(name = 'My business'): WASettings {
-  return {...structuredClone(waDefaults),enabled:false,businessName:name,industry:'',businessDescription:'',tagline:'',website:'',storeAddress:'',supportEmail:'',supportPhone:'',discountCode:'',discountOffer:'',shippingPolicy:'',warrantyPolicy:'',returnPolicy:'',paymentMethods:'',catalog:[],quickReplies:[],autoReplyRules:[],escalationRules:[],instructions:'',knowledge:'',examples:[],welcomeMessage:'Welcome! How can we help?',awayMessage:'We will respond during business hours.',closingMessage:'Thank you for contacting us.',profile:{name:'Support',role:'Customer support',bio:'',denyAi:false,gender:'neutral'}};
+  return {...structuredClone(waDefaults),enabled:false,approval:true,tone:'friendly',language:'auto',emoji:0,playfulness:0,humanDelay:false,typingIndicator:false,personalReplyDelaySeconds:0,groupReplyDelaySeconds:0,dailyLimit:100,businessName:name,industry:'',businessDescription:'',tagline:'',website:'',storeAddress:'',supportEmail:'',supportPhone:'',discountCode:'',discountOffer:'',shippingPolicy:'',warrantyPolicy:'',returnPolicy:'',paymentMethods:'',catalog:[],quickReplies:[],autoReplyRules:[],escalationRules:[],instructions:'',knowledge:'',examples:[],welcomeMessage:'Welcome! How can we help?',awayMessage:'We will respond during business hours.',closingMessage:'Thank you for contacting us.',profile:{name:'Support',role:'Customer support',bio:'',denyAi:false,gender:'neutral'}};
 }
 export async function settings(tenantId: string = 'biz_titan_watches'): Promise<WASettings> {
   const row = await db().prepare('SELECT payload FROM tenant_settings WHERE tenant_id=?').bind(tenantId).first<{payload:string}>();
   if (row) return {...freshBusinessSettings(),...JSON.parse(row.payload)};
-  if (tenantId === 'biz_titan_watches') return {...waDefaults,...await readState<WASettings>('wa_settings',waDefaults)};
+  if (tenantId === OWNER_WORKSPACE_ID) return ownerWhatsAppSettings();
   return freshBusinessSettings();
 }
 export async function assertActiveTenant(tenantId: string) {
@@ -450,175 +470,11 @@ export async function allThreads(tenantId: string = 'biz_titan_watches'): Promis
 
 // ── Orders & Delivery Location Hub ─────────────────────────────────────
 
-export async function reconcileOrdersWithThreads(tenantId: string = 'biz_titan_watches'): Promise<void> {
-  try {
-    const threadRows = (
-      await db()
-        .prepare('SELECT payload FROM wa_threads WHERE tenant_id=? ORDER BY updated DESC LIMIT 100')
-        .bind(tenantId)
-        .all<{ payload: string }>()
-    ).results;
-    if (!threadRows?.length) return;
-
-    const orderRows = (
-      await db()
-        .prepare('SELECT payload FROM wa_orders WHERE tenant_id=?')
-        .bind(tenantId)
-        .all<{ payload: string }>()
-    ).results;
-    const existingOrders = orderRows.map((r) => JSON.parse(r.payload) as WAOrder);
-
-    const s = await settings(tenantId);
-
-    for (const r of threadRows) {
-      const thread = JSON.parse(r.payload) as WAThread;
-
-      const fullChat = thread.messages.map((m) => m.text).join('\n');
-      const hasConfirmation =
-        thread.tags.includes('order_confirmed') ||
-        /\b(?:order.*(is|now)?.*confirmed|your order for .* is now confirmed|order has been confirmed|booking confirmed)\b/i.test(fullChat);
-
-      if (!hasConfirmation) continue;
-
-      // Extract orders with high-precision intelligence parser
-      const { extractOrdersFromThread } = await import('./order-parser');
-      const parsedOrders = extractOrdersFromThread(thread.messages, s.catalog || []);
-
-      const loc = thread.deliveryLocation;
-      const isReady = !!(loc && loc.pincode && !loc.pincodeMissing);
-      const isUpi = /upi|online|prepaid/i.test(fullChat);
-
-      for (const item of parsedOrders) {
-        // Match existing order intelligently by product ID or normalized name and amount
-        const norm = (s: string) => (s || '').replace(/\s*\(x\d+\)/gi, '').trim().toLowerCase();
-        let order = existingOrders.find(
-          (o) =>
-            o.threadId === thread.id &&
-            (o.productId === item.productId || norm(o.productName) === norm(item.productName)) &&
-            Math.abs(o.amount - item.amount) < 10
-        );
-
-        const orderCustName = item.customerName !== 'Customer' ? item.customerName : (thread.name || 'Customer');
-        const orderCustPhone = item.customerPhone || thread.phone || '';
-        const orderLoc = item.deliveryLocation || loc;
-
-        if (order) {
-          let updated = false;
-          if (orderCustName && order.customerName !== orderCustName) {
-            order.customerName = orderCustName;
-            updated = true;
-          }
-          if (orderCustPhone && order.customerPhone !== orderCustPhone) {
-            order.customerPhone = orderCustPhone;
-            updated = true;
-          }
-          if (orderLoc && (!order.deliveryLocation || order.deliveryLocation.raw !== orderLoc.raw)) {
-            order.deliveryLocation = orderLoc;
-            updated = true;
-          }
-          if (item.items && (!order.items || order.items.length !== item.items.length)) {
-            order.items = item.items;
-            order.quantity = item.quantity;
-            order.subtotal = item.subtotal;
-            order.discountAmount = item.discountAmount;
-            updated = true;
-          }
-          if (updated) {
-            order.updatedAt = Date.now();
-            await saveOrder(order, tenantId);
-            console.log(`[WA] 📦 Updated order ${order.id} for ${order.customerName}: ${order.productName} (₹${order.amount})`);
-          }
-          continue;
-        }
-
-        // New distinct confirmed order!
-        const orderNum = crypto.randomUUID();
-        const newOrder: WAOrder = {
-          id: `ORD-${orderNum}`,
-          threadId: thread.id,
-          customerName: orderCustName,
-          customerPhone: orderCustPhone,
-          productName: item.productName,
-          productId: item.productId,
-          items: item.items,
-          quantity: item.quantity,
-          subtotal: item.subtotal,
-          discountAmount: item.discountAmount,
-          amount: item.amount,
-          currency: 'INR',
-          discountCode: item.discountCode || s.discountCode || 'TITAN10',
-          paymentMode: item.paymentMode || (isUpi ? 'UPI' : 'COD'),
-          paymentStatus: item.paymentMode === 'UPI' ? 'paid' : 'pending',
-          orderStatus: item.orderStatus || (isReady ? 'ready_for_dispatch' : 'confirmed'),
-          deliveryLocation: orderLoc,
-          courierPartner: 'BlueDart',
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-        };
-
-        await saveOrder(newOrder, tenantId);
-        existingOrders.push(newOrder);
-        console.log(`[WA] 📦 New order saved: ${newOrder.id} for ${newOrder.customerName} (${newOrder.productName} - ₹${newOrder.amount})`);
-        if (!thread.tags.includes('order_confirmed')) {
-          thread.tags.push('order_confirmed');
-          await saveThread(thread, tenantId);
-        }
-      }
-    }
-  } catch (e) {
-    console.warn('[WA] Order reconciliation error:', e);
-  }
-}
-
-export async function allOrders(tenantId: string = 'biz_titan_watches'): Promise<WAOrder[]> {
-  await reconcileOrdersWithThreads(tenantId);
-  const rows = (
-    await db()
-      .prepare('SELECT payload FROM wa_orders WHERE tenant_id=? ORDER BY created DESC LIMIT 200')
-      .bind(tenantId)
-      .all<{ payload: string }>()
-  ).results;
-
-  const rawOrders = rows.map((r) => {
-    const order = JSON.parse(r.payload) as WAOrder;
-    return order;
-  });
-
-  const norm = (s: string) => (s || '').replace(/\s*\(x1\)/gi, '').trim().toLowerCase();
-  const uniqueOrders: WAOrder[] = [];
-  const duplicateIdsToDelete: string[] = [];
-
-  for (const o of rawOrders) {
-    const existing = uniqueOrders.find(
-      (u) =>
-        u.threadId === o.threadId &&
-        (u.productId === o.productId || norm(u.productName) === norm(o.productName)) &&
-        Math.abs(u.amount - o.amount) < 10
-    );
-
-    if (existing) {
-      if (!existing.deliveryLocation?.pincode && o.deliveryLocation?.pincode) {
-        existing.deliveryLocation = o.deliveryLocation;
-      }
-      if (o.paymentMode && existing.paymentMode === 'COD' && o.paymentMode === 'UPI') {
-        existing.paymentMode = 'UPI';
-        existing.paymentStatus = 'paid';
-      }
-      duplicateIdsToDelete.push(o.id);
-    } else {
-      uniqueOrders.push(o);
-    }
-  }
-
-  if (duplicateIdsToDelete.length > 0) {
-    Promise.all(
-      duplicateIdsToDelete.map((dupId) =>
-        db().prepare('DELETE FROM wa_orders WHERE id=? AND tenant_id=?').bind(dupId, tenantId).run().catch(() => {})
-      )
-    ).catch(() => {});
-  }
-
-  return uniqueOrders;
+// Orders are created by explicit checkout confirmation or an authorized operator.
+// Reads must never infer, create, merge or delete purchases.
+export async function allOrders(tenantId:string='biz_titan_watches'):Promise<WAOrder[]>{
+  const rows=(await db().prepare('SELECT payload FROM wa_orders WHERE tenant_id=? ORDER BY created DESC LIMIT 200').bind(tenantId).all<{payload:string}>()).results;
+  return rows.map(row=>JSON.parse(row.payload) as WAOrder);
 }
 
 export async function getOrder(id: string, tenantId: string = 'biz_titan_watches'): Promise<WAOrder | null> {
@@ -803,7 +659,6 @@ export async function getTursoStats(): Promise<TursoUsageStats> {
 
 export async function providerConnections(tenantId: string = 'biz_titan_watches'): Promise<ProviderConnection[]> {
   // The administrator supplies the shared pool to every business. Keys never leave the server.
-  const ownKey = await tenantSecret(tenantId,'groq_key');
   // 1. Read shared providers from Instagram's workspace_state (key: 'ai_providers')
   let sharedProviders: ProviderConnection[] = [];
   try {
@@ -826,7 +681,9 @@ export async function providerConnections(tenantId: string = 'biz_titan_watches'
     .first<{ key: string }>();
   const s = await settings(tenantId);
   let instagramVerified=false;
+  let legacyModel='openai/gpt-oss-120b';
   try {const row=await db().prepare("SELECT payload FROM workspace_state WHERE key='connection'").first<{payload:string}>(); instagramVerified=!!(row&&JSON.parse(row.payload).aiVerified);}catch{}
+  try {const row=await db().prepare("SELECT payload FROM workspace_state WHERE key='settings'").first<{payload:string}>();legacyModel=(row&&JSON.parse(row.payload).model)||legacyModel;}catch{}
 
   const legacyList = sharedKey
     ? [
@@ -834,13 +691,14 @@ export async function providerConnections(tenantId: string = 'biz_titan_watches'
           id: 'legacy-groq',
           label: 'Shared Groq Key (from Instagram)',
           provider: 'groq' as const,
-          model: s.model || 'openai/gpt-oss-120b',
+          model: legacyModel,
           verified: instagramVerified,
         },
       ]
     : [];
 
   const pool=[...sharedProviders,...waProviders,...legacyList];
+  const ownKey=!pool.some(p=>p.verified)?await tenantSecret(tenantId,'groq_key'):null;
   if(!pool.some(p=>p.verified)&&ownKey)pool.push({id:'tenant-groq',label:'Business AI',provider:'groq',model:s.model,verified:true});
   return Array.from(new Map(pool.map(p=>[p.id,p])).values());
 }
@@ -888,12 +746,13 @@ export async function generateReply(thread: WAThread, tenantId: string = 'biz_ti
   }
 
   // Build the prompt
-  const systemPrompt = buildSystemPrompt(s, thread, intent, tenantId);
+  const publication=await (await import('./catalog-publication')).catalogPublication(tenantId);
+  const systemPrompt = buildSystemPrompt(s, thread, intent, tenantId,publication.published?publication.url:'');
   const messages = buildConversationMessages(systemPrompt, thread);
 
   const {completeBusinessAI}=await import('./shared-ai');
   const result=await completeBusinessAI(tenantId,messages,0.6);
-  return cleanHumanReply(result);
+  return cleanHumanReply(result,s.profile.gender);
 }
 
 // ── AI Order Confirmation Feedback Evaluator ──────────────────────────────
@@ -992,7 +851,7 @@ export async function sendWhatsAppMessage(
   return {messageId:await client.sendMessage(targetJidOrPhone,text)};
 }
 
-export async function sendReply(thread: WAThread, text: string, tenantId: string = 'biz_titan_watches'): Promise<void> {
+export async function sendReply(thread: WAThread, text: string, tenantId: string = 'biz_titan_watches',automatic=false): Promise<void> {
   if (!text) return;
 
   const target = thread.recipientId || thread.phone;
@@ -1000,7 +859,27 @@ export async function sendReply(thread: WAThread, text: string, tenantId: string
   await assertActiveTenant(tenantId);
   const fingerprint=JSON.stringify([thread.id,thread.messages.filter(m=>m.role==='incoming').at(-1)?.id || thread.lastInbound,text]);
   const deliveryId=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(fingerprint)))).map(b=>b.toString(16).padStart(2,'0')).join('');
-  const reservation=await db().prepare("INSERT OR IGNORE INTO outbound_deliveries(tenant_id,id,status,created) VALUES (?,?,'sending',?)").bind(tenantId,deliveryId,Date.now()).run();
+  const config=automatic?await settings(tenantId):null;
+  if(config) {
+    const latest=await getThread(thread.id,tenantId);
+    if(!config.enabled||missingBusinessProfile(config).length||latest?.takeover||latest?.ai===false||(thread.channel==='group'&&!config.groupChats)||(thread.channel==='personal'&&!config.personalChats))throw new AppError('Automation permissions changed. Review this conversation before replying.',409);
+    if(config.approval) {
+      thread.draft=text;thread.status='review';await saveThread(thread,tenantId);
+      await audit('Reply held for approval','Automation approval was enabled before delivery.',tenantId);
+      return;
+    }
+  }
+  const limit=config?.dailyLimit??Infinity;
+  const reservation=await db().transaction(async tx=>{
+    const existing=await tx.prepare('SELECT id FROM outbound_deliveries WHERE tenant_id=? AND id=?').bind(tenantId,deliveryId).first();
+    if(existing)return {meta:{changes:0}};
+    if(automatic) {
+      const dayStart=new Date().setUTCHours(0,0,0,0);
+      const count=await tx.prepare("SELECT count(*) AS n FROM outbound_deliveries WHERE tenant_id=? AND created>=?").bind(tenantId,dayStart).first<{n:number}>();
+      if(Number(count?.n||0)>=limit)throw new AppError('Daily reply limit reached. Review the conversation or increase this business’s limit.',429);
+    }
+    return tx.prepare("INSERT OR IGNORE INTO outbound_deliveries(tenant_id,id,status,created) VALUES (?,?,'sending',?)").bind(tenantId,deliveryId,Date.now()).run();
+  });
   let messageId:string;
   if(!reservation.meta.changes) {
     const previous=await db().prepare('SELECT status,message_id FROM outbound_deliveries WHERE tenant_id=? AND id=?').bind(tenantId,deliveryId).first<{status:string;message_id:string}>();
@@ -1011,6 +890,7 @@ export async function sendReply(thread: WAThread, text: string, tenantId: string
       ({messageId}=await sendWhatsAppMessage(target,text,tenantId));
       await db().prepare("UPDATE outbound_deliveries SET status='sent',message_id=? WHERE tenant_id=? AND id=?").bind(messageId,tenantId,deliveryId).run();
       await db().prepare('INSERT INTO tenant_usage(tenant_id,sent,updated_at) VALUES (?,1,?) ON CONFLICT(tenant_id) DO UPDATE SET sent=sent+1,updated_at=excluded.updated_at').bind(tenantId,Date.now()).run();
+      await db().prepare('INSERT INTO tenant_daily_usage(tenant_id,day,sent) VALUES (?,?,1) ON CONFLICT(tenant_id,day) DO UPDATE SET sent=sent+1').bind(tenantId,new Date().toISOString().slice(0,10)).run();
     } catch(error) {
       await db().prepare("UPDATE outbound_deliveries SET status='uncertain' WHERE tenant_id=? AND id=?").bind(tenantId,deliveryId).run();
       thread.status='review'; thread.draft=text; thread.flagged='Delivery uncertain — check WhatsApp before sending again.';

@@ -1,0 +1,266 @@
+/* ══════════════════════════════════════════════════════════════
+   WhatsApp Automation & Nina Admin — Luxury Mobile-First CSS
+   ══════════════════════════════════════════════════════════════ */
+
+/* Category Chips */
+.wa-category-chip {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  padding: 6px 12px !important;
+  border-radius: 999px !important;
+  background: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  color: #334155 !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.03) !important;
+  margin: 3px !important;
+}
+
+/* Publication Card */
+.wa-publication {
+  background: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 16px !important;
+  padding: 22px 20px !important;
+  margin-bottom: 24px !important;
+  box-shadow: 0 4px 18px rgba(115, 84, 218, 0.04) !important;
+  color: #1e293b !important;
+}
+.wa-publication form {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 16px !important;
+}
+.wa-publication label {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 7px !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  color: #334155 !important;
+}
+.wa-publication input[type=text] {
+  padding: 11px 14px !important;
+  border-radius: 10px !important;
+  border: 1.5px solid #cbd5e1 !important;
+  background: #ffffff !important;
+  font-size: 14px !important;
+  color: #0f172a !important;
+  outline: none !important;
+}
+.wa-publication small {
+  font-size: 12px !important;
+  color: #64748b !important;
+  font-weight: normal !important;
+}
+.wa-publication button[type=submit] {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 8px !important;
+  background: #7354da !important;
+  color: #ffffff !important;
+  border: none !important;
+  border-radius: 10px !important;
+  padding: 11px 22px !important;
+  font-size: 13.5px !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+  box-shadow: 0 4px 12px rgba(115, 84, 218, 0.25) !important;
+}
+
+/* Category Manager Container */
+.wa-category-manager {
+  background: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 16px !important;
+  padding: 20px !important;
+  margin-bottom: 24px !important;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.02) !important;
+}
+.wa-category-manager h3 {
+  font-size: 16px !important;
+  font-weight: 700 !important;
+  color: #1e293b !important;
+  margin: 0 0 6px !important;
+}
+.wa-category-manager p {
+  font-size: 12.5px !important;
+  color: #64748b !important;
+  margin: 0 0 14px !important;
+  line-height: 1.5 !important;
+}
+.wa-category-manager form {
+  display: flex !important;
+  gap: 8px !important;
+  flex-wrap: wrap !important;
+  margin-bottom: 14px !important;
+}
+.wa-category-manager input {
+  flex: 1 1 240px !important;
+  padding: 10px 14px !important;
+  border-radius: 9px !important;
+  border: 1.5px solid #cbd5e1 !important;
+  background: #f8fafc !important;
+  font-size: 13.5px !important;
+  color: #0f172a !important;
+}
+.wa-category-manager button[type=submit] {
+  padding: 10px 16px !important;
+  border-radius: 9px !important;
+  background: #f5f0fc !important;
+  color: #7354da !important;
+  border: 1px solid #e0d5f8 !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+}
+.wa-category-manager > div {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 8px !important;
+  padding-top: 10px !important;
+  border-top: 1px solid #f1f5f9 !important;
+}
+.wa-category-manager > div > span {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  padding: 6px 12px !important;
+  border-radius: 999px !important;
+  background: #f5f0fc !important;
+  color: #58409a !important;
+  border: 1px solid #ded7f2 !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  margin: 2px !important;
+}
+
+/* Master Admin Top Header */
+.private-service-header {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 12px !important;
+  padding: 12px 20px !important;
+  background: #ffffff !important;
+  border-bottom: 1px solid #e2e8f0 !important;
+  font-size: 13px !important;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.03) !important;
+}
+.private-service-header a {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  color: #7354da !important;
+  font-weight: 600 !important;
+  text-decoration: none !important;
+  padding: 6px 10px !important;
+  border-radius: 8px !important;
+  background: #f5f0fc !important;
+}
+.private-service-header button {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  border: 1px solid #e2e8f0 !important;
+  color: #334155 !important;
+  background: #f8fafc !important;
+  border-radius: 8px !important;
+  padding: 7px 12px !important;
+  min-height: 36px !important;
+  cursor: pointer !important;
+  font-size: 12.5px !important;
+  font-weight: 600 !important;
+  transition: all 0.15s ease !important;
+}
+.private-service-header button:hover {
+  background: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+}
+.private-service-header button.active-header-tab {
+  background: #7354da !important;
+  color: #ffffff !important;
+  border-color: #7354da !important;
+  box-shadow: 0 2px 8px rgba(115, 84, 218, 0.25) !important;
+}
+
+/* Mobile-First Navigation Bar */
+.wa-nav-bar {
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  overflow-x: auto !important;
+  -webkit-overflow-scrolling: touch !important;
+  scrollbar-width: none !important;
+  padding: 8px 12px !important;
+  background: #ffffff !important;
+  border-bottom: 1px solid #e2e8f0 !important;
+}
+.wa-nav-bar::-webkit-scrollbar {
+  display: none !important;
+}
+.wa-nav-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 7px !important;
+  padding: 9px 14px !important;
+  border-radius: 10px !important;
+  border: 1px solid transparent !important;
+  background: transparent !important;
+  color: #64748b !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  white-space: nowrap !important;
+  cursor: pointer !important;
+  flex-shrink: 0 !important;
+  min-height: 42px !important;
+  transition: all 0.15s ease !important;
+}
+.wa-nav-btn:hover {
+  background: #f8fafc !important;
+  color: #334155 !important;
+}
+.wa-nav-btn[aria-current=page] {
+  background: #f5f0fc !important;
+  color: #7354da !important;
+  border-color: #e0d5f8 !important;
+  box-shadow: inset 0 0 0 1px #7354da30 !important;
+}
+
+/* Mobile Responsiveness ≤ 768px */
+@media (max-width: 768px) {
+  .private-service-header {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    padding: 10px 14px !important;
+    gap: 10px !important;
+  }
+  .private-service-header > div {
+    display: flex !important;
+    width: 100% !important;
+    gap: 8px !important;
+  }
+  .private-service-header button {
+    flex: 1 !important;
+    justify-content: center !important;
+  }
+  .wa-top-header {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 12px !important;
+    padding: 14px 12px !important;
+  }
+  .wa-top-actions {
+    width: 100% !important;
+    justify-content: space-between !important;
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+  }
+  .wa-kpi {
+    padding: 4px 8px !important;
+    font-size: 11px !important;
+  }
+}

@@ -1,11 +1,16 @@
-# WhatsApp entry and theme verification
+# WhatsApp entry and privacy verification
 
-- Anonymous visitors see account access before any dashboard mounts. Only the session-check endpoint is requested until authentication succeeds.
-- Session expiry returns to account access. Background workspace polling pauses on server failure and offers Retry instead of repeating requests indefinitely.
-- Anonymous auth checks return HTTP 200 with authenticated=false without database configuration. Anonymous workspace and connection endpoints return HTTP 401 before database initialization.
-- Removed the HTML dark class, dark base tokens and remote font stylesheet. Account access uses a single light green/white palette, consistent typography and associated form labels. Dashboard captions now have a minimum 12px size.
-- Visually checked sign-in and registration at 390px phone width and desktop width in the local browser. No browser warnings/errors were captured during these checks. No credentials were submitted and no accounts were created in the running application.
-- WhatsApp TypeScript and production build pass. Anonymous-entry regression checks pass. Across anonymous-entry, location and tenant suites: 19 pass, 1 fails.
-- The remaining failing legacy-migration test predates this change: the local modification to tenant-migration.ts defaults unowned legacy data to biz_titan_watches, while the test requires explicit ownership mapping. That local migration modification was preserved; it needs a separate ownership decision before production migration.
+The public business entry is /business. It has neutral WhatsApp Business branding and offers sign-in or registration before mounting any business dashboard. Its assets and APIs use the same /business prefix. The private WhatsApp administrator is /whatsapp inside the Instagram owner application and requires server-validated owner access.
 
-The React DevTools and HMR messages in the pasted log are normal development notices. The repeated failed workspace/connect calls were caused by the dashboard polling before sign-in; the account gate prevents those calls for anonymous visitors. Historical server-side 500 responses cannot be fully diagnosed from browser messages alone.
+- Anonymous business auth checks return HTTP 200 with authenticated=false before database setup; workspace and device endpoints reject anonymous access.
+- Owner cookies cannot authenticate the public business app. Only the owner app's signed server bridge can obtain administrative business access. Public admin requests return 404.
+- Public registration always creates a business administrator in a newly isolated workspace. Public login cannot create a master-owner session.
+- Native owner and business token exchange endpoints accept explicit credentials, reject browser-origin/cookie exchanges and retain server revocation checks. No provider keys are included in clients.
+- Instagram and business logout are independent. Public gateway requests exclude owner cookies and private proof headers.
+- Public web and Android artifacts have no Nina branding, owner-cookie names or private admin endpoint references. The existing shared production hostname remains visible.
+- The private Instagram sidebar link renders deterministic text and SVG icons; the server supplies the initial clock. Current browser checks produced no hydration warnings.
+- Desktop sign-in, registration and private admin views were inspected. A current mobile viewport check could not be applied by the browser tool; native device verification remains pending.
+- Both web builds, both native TypeScript checks and both Android bundle exports pass. The focused suite passes 44 checks.
+- See PLATFORM_UPDATE_VERIFICATION.md for the detailed findings and limits, and MOBILE_APPS.md for the two native apps and EAS build instructions.
+
+React DevTools/HMR messages are ordinary development notices. Authentication gates prevent anonymous workspace polling. Historical 500 errors cannot be attributed from browser log fragments alone.

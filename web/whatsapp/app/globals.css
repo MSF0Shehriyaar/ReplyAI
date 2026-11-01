@@ -1,6 +1,7 @@
 @import "tailwindcss";
 
 @import "../../shared/design-system.css";
+@import "../../shared/whatsapp-luxury-ui.css";
 @import "./access.css";
 @import "./device-connection.css";
 /* ══════════════════════════════════════════════════════════════
@@ -21,7 +22,7 @@
 *, *::before, *::after { box-sizing: border-box; }
 
 body {
-  background:var(--nina-canvas);
+  background:var(--workspace-canvas);
   color: var(--text-primary);
   min-height: 100vh;
   margin: 0;
@@ -321,26 +322,26 @@ select option {
   color:#1b3027;
 }
 
-.wa-app {background:var(--nina-canvas)!important;color:var(--nina-ink)!important;min-height:100dvh!important;--nina-accent:#087f6b;--nina-soft:#e9f6f2;}
-.wa-top-header {background:#ffffffed!important;border-bottom:1px solid var(--nina-line)!important;padding:18px 28px!important;backdrop-filter:blur(16px);}
+.wa-app {background:var(--workspace-canvas)!important;color:var(--workspace-ink)!important;min-height:100dvh!important;}
+.wa-top-header {background:#ffffffed!important;border-bottom:1px solid var(--workspace-line)!important;padding:18px 28px!important;backdrop-filter:blur(16px);}
 .wa-top-header h1 {letter-spacing:-.035em;}
 .wa-top-actions {gap:8px!important;}
-.wa-nav-bar {background:var(--nina-surface)!important;padding:8px 24px!important;border-bottom:1px solid var(--nina-line)!important;gap:4px!important;}
+.wa-nav-bar {background:var(--workspace-surface)!important;padding:8px 24px!important;border-bottom:1px solid var(--workspace-line)!important;gap:4px!important;}
 .wa-nav-btn {min-height:44px;border-radius:10px!important;font-size:13px!important;gap:8px!important;}
-.wa-nav-btn[aria-current=page] {background:var(--nina-soft)!important;color:var(--nina-accent)!important;box-shadow:none!important;}
+.wa-nav-btn[aria-current=page] {background:var(--workspace-soft)!important;color:var(--workspace-accent)!important;box-shadow:none!important;}
 .wa-nav-btn svg {width:18px;height:18px;flex-shrink:0;}
 .wa-main {padding:20px!important;}
-.wa-inbox-layout {height:calc(100dvh - 160px)!important;min-height:420px!important;border:1px solid var(--nina-line);border-radius:var(--nina-radius);box-shadow:var(--nina-shadow);background:white;}
-.wa-inbox-sidebar {background:white!important;width:320px!important;border-right:1px solid var(--nina-line)!important;min-height:0;}
+.wa-inbox-layout {height:calc(100dvh - 160px)!important;min-height:420px!important;border:1px solid var(--workspace-line);border-radius:var(--workspace-radius);box-shadow:var(--workspace-shadow);background:white;}
+.wa-inbox-sidebar {background:white!important;width:320px!important;border-right:1px solid var(--workspace-line)!important;min-height:0;}
 .wa-chat-panel {background:#fafbfd!important;min-height:0;}
 .wa-chat-panel textarea {resize:none;}
-.wa-app input,.wa-app textarea,.wa-app select {background:white!important;color:var(--nina-ink)!important;border-color:#cdd6e3!important;border-radius:10px!important;}
+.wa-app input,.wa-app textarea,.wa-app select {background:white!important;color:var(--workspace-ink)!important;border-color:#cdd6e3!important;border-radius:10px!important;}
 .wa-app input::placeholder,.wa-app textarea::placeholder {color:#68768b;}
-.wa-app select option {background:white;color:var(--nina-ink);}
+.wa-app select option {background:white;color:var(--workspace-ink);}
 .wa-app iframe {border-radius:12px;}
 .wa-app table {width:100%;border-collapse:collapse;}
-.wa-app th {color:var(--nina-muted);font-size:11px;letter-spacing:.06em;}
-.wa-app td,.wa-app th {padding:14px 12px;border-bottom:1px solid var(--nina-line);}
+.wa-app th {color:var(--workspace-muted);font-size:11px;letter-spacing:.06em;}
+.wa-app td,.wa-app th {padding:14px 12px;border-bottom:1px solid var(--workspace-line);}
 .wa-app [role=dialog],.wa-app form {max-width:100%;}
 .wa-mobile-back-btn {align-items:center;justify-content:center;min-width:44px;}
 @media(max-width:767px) {
@@ -359,7 +360,7 @@ select option {
 }
 @media(min-width:768px) {.wa-mobile-back-btn{display:none!important;}}
 /* Dashboard typography and palette use the same light surface model as account access. */
-.wa-dashboard {font-family:var(--nina-font)!important;line-height:1.55;}
+.wa-dashboard {font-family:var(--workspace-font)!important;line-height:1.55;}
 .wa-dashboard button {font-family:inherit;letter-spacing:0!important;}
 .wa-dashboard p {line-height:1.65;}
 .wa-dashboard label {color:#34473b;}

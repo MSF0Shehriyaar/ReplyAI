@@ -1,4 +1,4 @@
-.wa-access {min-height:100dvh;display:grid;grid-template-columns:1fr;background:#fff;color:#172b35;font-family:var(--nina-font);}
+.wa-access {min-height:100dvh;display:grid;grid-template-columns:1fr;background:#fff;color:#172b35;font-family:var(--workspace-font);}
 .wa-access-story {background:#ecf5f1;padding:24px;display:flex;flex-direction:column;justify-content:space-between;}
 .wa-access-brand {display:flex;align-items:center;gap:10px;width:fit-content;text-decoration:none;color:#123c32;font-size:24px;font-weight:700;letter-spacing:-1px;}
 .wa-access-brand>span:first-child {display:grid;place-items:center;width:40px;height:40px;background:#10745e;color:#fff;border-radius:12px;}

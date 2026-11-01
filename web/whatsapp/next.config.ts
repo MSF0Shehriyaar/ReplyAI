@@ -9,7 +9,11 @@ if (fs.existsSync(sharedEnv) && typeof (process as any).loadEnvFile === 'functio
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  basePath:'/business',
   reactStrictMode: true,
+  async redirects() {
+    return [{source:'/',destination:'/business',basePath:false,permanent:false}];
+  },
   serverExternalPackages: [
     '@whiskeysockets/baileys',
     'qrcode',

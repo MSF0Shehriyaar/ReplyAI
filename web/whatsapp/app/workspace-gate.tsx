@@ -4,19 +4,21 @@ import {useCallback,useEffect,useId,useState,type FormEvent,type ReactNode} from
 import {ArrowRight,Building2,Eye,EyeOff,LockKeyhole,MessageSquare,ShieldCheck} from 'lucide-react';
 
 type Status='checking'|'anonymous'|'authenticated'|'unavailable';
-export default function WorkspaceGate({renderDashboard}:{renderDashboard:(expire:()=>void)=>ReactNode}) {
+export default function WorkspaceGate({renderDashboard}:{renderDashboard:(expire:()=>void,identity:{businessName:string;userName:string})=>ReactNode}) {
   const [status,setStatus]=useState<Status>('checking');
   const [error,setError]=useState('');
   const [mode,setMode]=useState<'login'|'register'>('login');
   const [busy,setBusy]=useState(false);
   const [visible,setVisible]=useState(false);
+  const [identity,setIdentity]=useState({businessName:'Your business',userName:''});
   const id=useId();
   const expire=useCallback(()=>{setStatus('anonymous');setError('Your session has ended. Please sign in again.');},[]);
   const check=useCallback(async(signal?:AbortSignal)=>{
     try {
-      const response=await fetch('/api/whatsapp/auth',{cache:'no-store',signal});
+      const response=await fetch('/business/api/auth',{cache:'no-store',signal});
       const data=await response.json();
       if(!response.ok) throw new Error(data.error || 'Sign-in is temporarily unavailable. Please try again.');
+      setIdentity({businessName:data.tenant?.name||'Your business',userName:data.user?.name||''});
       setStatus(data.authenticated?'authenticated':'anonymous');setError('');
     } catch(e) {
       if(signal?.aborted)return;
@@ -30,17 +32,17 @@ export default function WorkspaceGate({renderDashboard}:{renderDashboard:(expire
     const form=new FormData(event.currentTarget);
     const body=mode==='register'?{action:'register',businessName:form.get('businessName'),ownerName:form.get('ownerName'),email:form.get('email'),password:form.get('password')}:{action:'login',email:form.get('email'),password:form.get('password')};
     try {
-      const response=await fetch('/api/whatsapp/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+      const response=await fetch('/business/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
       const result=await response.json();
       if(!response.ok)throw new Error(result.error || 'Unable to sign in. Please try again.');
       await check();
     } catch(e){setError(e instanceof Error?e.message:'Unable to sign in.');}
     finally{setBusy(false);}
   }
-  if(status==='authenticated')return renderDashboard(expire);
+  if(status==='authenticated')return renderDashboard(expire,identity);
   return <main className="wa-access">
     <section className="wa-access-story" aria-label="WhatsApp business workspace">
-      <a href="/whatsapp" className="wa-access-brand"><span><MessageSquare size={22} aria-hidden="true"/></span>Nina<span className="wa-access-brand-label">BUSINESS</span></a>
+      <a href="/business" className="wa-access-brand"><span><MessageSquare size={22} aria-hidden="true"/></span>WhatsApp<span className="wa-access-brand-label">BUSINESS</span></a>
       <div className="wa-access-intro"><span className="wa-access-eyebrow">YOUR BUSINESS, CONNECTED</span><h1>A calmer way to<br/>manage WhatsApp.</h1><p>Keep customer conversations, orders, and your team’s replies in one clear workspace.</p>
         <div className="wa-access-preview" aria-hidden="true"><div className="wa-preview-heading"><span className="wa-preview-dot"/>Your workspace<span>Connected</span></div><div className="wa-preview-row"><span className="wa-preview-avatar">AC</span><div><b>A new customer conversation</b><span>Ready for your team</span></div><span className="wa-preview-badge">Inbox</span></div><div className="wa-preview-message">Everything you need, right where you need it.</div><div className="wa-preview-compose">Write a reply…<ArrowRight size={16}/></div></div>
       </div>

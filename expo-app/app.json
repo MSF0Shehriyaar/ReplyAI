@@ -1,35 +1,28 @@
 {
   "expo": {
-    "name": "Nina Uncensored",
-    "slug": "nina-uncensored",
+    "name": "Nina Control Room",
+    "slug": "nina-control-room",
     "version": "1.0.0",
-    "orientation": "portrait",
-    "icon": "./assets/icon.png",
-    "userInterfaceStyle": "dark",
-    "splash": {
-      "backgroundColor": "#0B0B0F"
-    },
+    "orientation": "default",
+    "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.nina.uncensored"
+      "bundleIdentifier": "com.nina.controlroom"
     },
     "android": {
-      "adaptiveIcon": {
-        "backgroundColor": "#0B0B0F"
-      },
-      "package": "com.nina.uncensored",
+      "package": "com.nina.controlroom",
       "permissions": [
         "INTERNET"
+      ],
+      "allowBackup": false
+    },
+    "plugins": [
+      [
+        "expo-secure-store",
+        {
+          "configureAndroidBackup": true
+        }
       ]
-    },
-    "web": {
-      "favicon": "./assets/favicon.png"
-    },
-    "plugins": [],
-    "extra": {
-      "eas": {
-        "projectId": ""
-      }
-    }
+    ]
   }
 }

@@ -31,7 +31,12 @@ build/
 .wrangler/
 .sites-runtime/
 
+# Local Demo (strictly local development, never push to git or production)
+demo/
+demo/**
+
 # Android & Mobile
+.expo/
 local.properties
 .gradle/
 *.apk

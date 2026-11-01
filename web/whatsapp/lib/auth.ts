@@ -1,6 +1,7 @@
 // ─── WhatsApp Multi-Tenant Authentication & Authorization ────────────────
 import { db, AppError, audit } from './server.ts';
 import { validStoredOwnerSession } from '../../instagram/lib/owner-session.ts';
+import {isPrivateWorkspaceRequest} from '../../shared/private-workspace-bridge';
 
 import { requireOrigin, tenantIdSchema } from './request-security';
 import { hashPassword, signSessionToken, verifySessionSignature, SESSION_COOKIE_NAME, OWNER_COOKIE_NAME, type SessionPayload, type UserRole } from './session';
@@ -10,14 +11,15 @@ export type { SessionPayload, UserRole };
 export async function verifySessionToken(token: string): Promise<SessionPayload | null> {
   const data = await verifySessionSignature(token);
   if (!data) return null;
-  const row = await db().prepare(`SELECT s.revoked_at,s.expires_at,u.status,u.role,u.tenant_id
+  const row = await db().prepare(`SELECT s.revoked_at,s.expires_at,s.last_seen_at,u.status,u.role,u.tenant_id
     FROM auth_sessions s JOIN business_users u ON u.id=s.user_id
     JOIN business_tenants t ON t.id=u.tenant_id
     WHERE s.id=? AND s.user_id=? AND s.tenant_id=? AND s.role=? AND t.status='active'`)
     .bind(data.jti,data.userId,data.tenantId,data.role)
-    .first<{revoked_at:number|null;expires_at:number;status:string;role:string;tenant_id:string}>();
+    .first<{revoked_at:number|null;expires_at:number;last_seen_at:number|null;status:string;role:string;tenant_id:string}>();
   if (!row || row.revoked_at !== null || row.expires_at <= Date.now() ||
       row.status !== 'active' || row.role !== data.role || row.tenant_id !== data.tenantId) return null;
+  if(!row.last_seen_at||row.last_seen_at<Date.now()-60000)await db().prepare('UPDATE auth_sessions SET last_seen_at=? WHERE id=? AND revoked_at IS NULL').bind(Date.now(),data.jti).run();
   return data;
 }
 
@@ -48,8 +50,8 @@ export async function createAuthSession(
   const d = db();
   await d
     .prepare(
-      `INSERT INTO auth_sessions (id, user_id, tenant_id, role, expires_at, created_at, ip, user_agent)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO auth_sessions (id, user_id, tenant_id, role, expires_at, created_at, ip, user_agent,last_seen_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .bind(
       jti,
@@ -59,7 +61,8 @@ export async function createAuthSession(
       exp,
       now,
       opts?.ip || null,
-      opts?.userAgent || null
+      opts?.userAgent || null,
+      now
     )
     .run();
 
@@ -104,40 +107,44 @@ export async function getAuthSession(request?: Request): Promise<SessionPayload 
   if (authHeader?.startsWith('Bearer ')) {
     const bearer = authHeader.slice(7).trim();
     const session = await verifySessionToken(bearer);
-    if (session) return session;
+    if (session&&session.role!=='master_admin') return session;
   }
 
   // 2. Check wa_session cookie
-  if (cookieHeader) {
+  if (cookieHeader||authHeader?.startsWith('Bearer ')) {
     const cookies = Object.fromEntries(
-      cookieHeader.split(';').map((c) => {
+      (cookieHeader||'').split(';').map((c) => {
         const [k, ...v] = c.trim().split('=');
         return [k, v.join('=')];
       })
     );
 
     // 3. Fallback: Nina Master Admin session from Instagram Control Room
-    if (cookies[OWNER_COOKIE_NAME]) {
-      const isOwner = await validStoredOwnerSession(cookies[OWNER_COOKIE_NAME], async key => {
+    const ownerToken=authHeader?.startsWith('Bearer ')?authHeader.slice(7).trim():cookies[OWNER_COOKIE_NAME];
+    if (ownerToken&&request&&await isPrivateWorkspaceRequest(request)) {
+      const isOwner = await validStoredOwnerSession(ownerToken, async key => {
         const row = await db().prepare('SELECT payload FROM workspace_state WHERE key=?').bind(key).first<{payload:string}>();
         return row ? JSON.parse(row.payload) : null;
       });
       if (isOwner) {
+        const payload=JSON.parse(atob(decodeURIComponent(ownerToken).split('.')[0]));
+        await db().prepare("UPDATE workspace_state SET payload=json_set(payload,'$.lastSeenAt',?) WHERE key=? AND COALESCE(json_extract(payload,'$.lastSeenAt'),0)<?").bind(Date.now(),'owner_session:'+payload.jti,Date.now()-60000).run();
         return {
-          jti: 'owner_session',
+          jti: payload.jti,
           userId: 'nina_admin',
-          email: 'nina@ninakurainservices.in',
-          name: 'Nina Kurain',
+          email: 'owner@workspace.local',
+          name: payload.user,
           role: 'master_admin',
           tenantId: 'biz_titan_watches',
-          iat: Date.now(),
-          exp: Date.now() + 86400000,
+          iat: payload.iat||0,
+          exp: payload.exp,
         };
       }
     }
+    if(authHeader)return null;
     if (cookies[SESSION_COOKIE_NAME]) {
       const session = await verifySessionToken(cookies[SESSION_COOKIE_NAME]);
-      if (session) return session;
+      if (session&&session.role!=='master_admin') return session;
     }
 
   }
@@ -152,7 +159,7 @@ export async function requireAuth(request?: Request): Promise<SessionPayload> {
   }
 
   // Origin / CSRF validation on mutating methods
-  if (request && ['POST', 'PUT', 'DELETE', 'PATCH'].includes(request.method)) {
+  if (request && ['POST', 'PUT', 'DELETE', 'PATCH'].includes(request.method)&&!request.headers.get('authorization')?.startsWith('Bearer ')) {
     requireOrigin(request);
   }
 

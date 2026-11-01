@@ -9,6 +9,7 @@ export async function claimThreadJobs(tenantId: string,threadId: string,maxRetri
       .bind(tenantId,threadId,token,now+600000,now).run();
     if(!lease.meta.changes) return {token,jobs:[]};
     await tx.prepare("UPDATE wa_jobs SET status='pending' WHERE tenant_id=? AND thread_id=? AND status='processing'").bind(tenantId,threadId).run();
+    await tx.prepare("UPDATE wa_jobs SET status='failed' WHERE tenant_id=? AND thread_id=? AND status='pending' AND attempts>=?").bind(tenantId,threadId,maxRetries).run();
     const jobs=(await tx.prepare("SELECT * FROM wa_jobs WHERE tenant_id=? AND thread_id=? AND status='pending' AND attempts<? AND created<=? ORDER BY created LIMIT 100")
       .bind(tenantId,threadId,maxRetries,now).all<any>()).results;
     for(const job of jobs) await tx.prepare("UPDATE wa_jobs SET status='processing',attempts=attempts+1 WHERE tenant_id=? AND id=?").bind(tenantId,job.id).run();
@@ -28,6 +29,7 @@ export async function enqueueEvent(tenantId:string,event:{id:string;threadId:str
     await tx.prepare("INSERT INTO wa_jobs(id,thread_id,payload,status,attempts,created,tenant_id) VALUES (?,?,?,'pending',0,?,?)")
       .bind(event.id,event.threadId,JSON.stringify({...event,tenantId}),Date.now(),tenantId).run();
     await tx.prepare('INSERT INTO tenant_usage(tenant_id,received,updated_at) VALUES (?,1,?) ON CONFLICT(tenant_id) DO UPDATE SET received=received+1,updated_at=excluded.updated_at').bind(tenantId,Date.now()).run();
+    await tx.prepare('INSERT INTO tenant_daily_usage(tenant_id,day,received) VALUES (?,?,1) ON CONFLICT(tenant_id,day) DO UPDATE SET received=received+1').bind(tenantId,new Date().toISOString().slice(0,10)).run();
     return true;
   });
 }

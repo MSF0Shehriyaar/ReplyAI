@@ -1,4 +1,7 @@
 import {hasSessionCredentials} from '@/lib/session-credentials';
+import {catalogPublication,saveCatalogPublication} from '@/lib/catalog-publication';
+import {profileFields,missingBusinessProfile} from '@/lib/business-profile';
+import {generateReply} from '@/lib/server';
 // ─── WhatsApp Workspace API — Multi-Tenant State Management ─────────────
 import { NextRequest, NextResponse } from 'next/server';
 import {
@@ -100,16 +103,16 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       {
         settings: s,
+        catalogPublication:await catalogPublication(tenantId),
         threads,
         orders,
-        connections,
+        connections: isNinaAdmin ? connections : {...connections,providers:[],primaryProviderId:undefined},
         logs,
         analytics,
         queue,
         usage,
         storageReady: true,
-        tursoStats,
-        isNinaAdmin,
+        ...(isNinaAdmin?{tursoStats,isNinaAdmin:true}:{}),
         registeredAccounts,
         activeAccountId: tenantId,
         userRole: session.role,
@@ -151,7 +154,7 @@ export async function POST(request: NextRequest) {
       const bizId = String(body.businessId || '').trim();
       if (!bizId) throw new AppError('businessId required', 400);
       if (bizId === 'biz_titan_watches') {
-        throw new AppError('Cannot suspend the primary master organization (Titan Watches).', 400);
+        throw new AppError('The private owner workspace cannot be suspended.', 400);
       }
       await updateBusinessTenantStatus(bizId, 'suspended');
       await audit('Tenant suspended', `Master Admin suspended business: ${bizId}`, bizId);
@@ -183,9 +186,35 @@ export async function POST(request: NextRequest) {
     }
 
     // ── Tenant-Scoped Settings ──────────────────────────────────────────
-    if (action === 'save-settings') {
+    if(action==='save-catalog') {
+      const ids=body.catalog.map((item:{id:string})=>item.id);
+      if(new Set(ids).size!==ids.length)throw new AppError('Product identifiers must be unique.',400);
+      const current=await settings(tenantId);
+      const categories=Array.from(new Set([...(body.categories??current.categories??[]),...body.catalog.map((item:{category:string})=>item.category)].map((category:any)=>String(category).trim()).filter(Boolean))) as string[];
+      await saveSettings({...current,catalog:body.catalog,categories},tenantId);
+      await audit('Catalog updated',`Saved ${body.catalog.length} products`,tenantId);
+      return NextResponse.json({ok:true});
+    }
+    if(action==='save-catalog-publication')return NextResponse.json({ok:true,publication:await saveCatalogPublication(tenantId,body.slug,body.published)});
+    if (['save-settings','save-profile','save-automation'].includes(action)) {
       if (!body.settings) throw new AppError('Settings payload required', 400);
-      await saveSettings(body.settings, tenantId);
+      let updated=body.settings;
+      if(action==='save-profile') {
+        const current=await settings(tenantId);
+        const fields=[...profileFields.map(f=>f.key),'website','tagline'] as const;
+        updated={...current,...Object.fromEntries(fields.map(key=>[key,body.settings[key]])),profile:{...current.profile,name:body.settings.profile.name,role:body.settings.profile.role,bio:body.settings.profile.bio}};
+        const missing=missingBusinessProfile(updated);
+        if(missing.length)throw new AppError('Complete your business profile: '+missing.join(', '),400);
+      } else if(action==='save-automation') {
+        const current=await settings(tenantId);
+        const fields=['enabled','personalChats','groupChats','approval','dailyLimit','tone','language','length','emoji','playfulness','humanDelay','personalReplyDelaySeconds','groupReplyDelaySeconds','typingIndicator','maxRetries','autoTagEnabled','sentimentAnalysisEnabled','instructions','examples','welcomeMessage','awayMessage','closingMessage','autoReplyRules'] as const;
+        updated={...current,...Object.fromEntries(fields.map(key=>[key,body.settings[key]])),profile:{...current.profile,gender:body.settings.profile.gender}};
+      }
+      if(updated.enabled) {
+        const missing=missingBusinessProfile(updated);
+        if(missing.length)throw new AppError('Complete your business profile before enabling replies: '+missing.join(', '),412);
+      }
+      await saveSettings(updated, tenantId);
       await audit('Settings updated', 'WhatsApp automation settings updated', tenantId);
       return NextResponse.json({ ok: true, settings: await settings(tenantId) });
     }
@@ -206,15 +235,18 @@ export async function POST(request: NextRequest) {
       if (body.waPhoneNumberId) {
         const token=body.waAccessToken || await tenantSecret(tenantId,'wa_access_token');
         if(!token) throw new AppError('Access token required to verify this phone.',400);
-        const response=await fetch('https://graph.facebook.com/'+(await settings(tenantId)).graphVersion+'/'+body.waPhoneNumberId+'?fields=id', {headers:{Authorization:'Bearer '+token},signal:AbortSignal.timeout(15000)});
-        if(!response.ok || (await response.json()).id !== body.waPhoneNumberId) throw new AppError('Could not verify ownership of this WhatsApp phone.',403);
+        const response=await fetch('https://graph.facebook.com/'+(await settings(tenantId)).graphVersion+'/'+body.waPhoneNumberId+'?fields=id,display_phone_number', {headers:{Authorization:'Bearer '+token},signal:AbortSignal.timeout(15000)});
+        const phoneInfo=await response.json();
+        if(!response.ok || phoneInfo.id !== body.waPhoneNumberId || !phoneInfo.display_phone_number) throw new AppError('Could not verify ownership of this WhatsApp phone.',403);
+        const {claimWhatsAppNumber}=await import('@/lib/number-ownership');
+        const displayPhone=await claimWhatsAppNumber(tenantId,phoneInfo.display_phone_number);
         const d = db();
         await d
           .prepare(
-            `INSERT INTO tenant_connections (tenant_id, phone_number_id, updated_at,provider) VALUES (?, ?, ?,'cloud')
-             ON CONFLICT(tenant_id) DO UPDATE SET phone_number_id=excluded.phone_number_id,provider='cloud', updated_at=excluded.updated_at`
+            `INSERT INTO tenant_connections (tenant_id, phone_number_id, updated_at,provider,display_phone_number) VALUES (?, ?, ?,'cloud',?)
+             ON CONFLICT(tenant_id) DO UPDATE SET phone_number_id=excluded.phone_number_id,provider='cloud',display_phone_number=excluded.display_phone_number, updated_at=excluded.updated_at`
           )
-          .bind(tenantId, body.waPhoneNumberId, Date.now())
+          .bind(tenantId, body.waPhoneNumberId, Date.now(),displayPhone)
           .run();
         count++;
       }
@@ -224,7 +256,8 @@ export async function POST(request: NextRequest) {
       }
       if (!count) throw new AppError('Provide at least one credential to save.');
       await audit('Credentials saved', `Saved ${count} credential(s)`, tenantId);
-      return NextResponse.json({ ok: true, connections: await connectionStatus(tenantId) });
+      const connections=await connectionStatus(tenantId);
+      return NextResponse.json({ ok: true, connections:isNinaAdmin?connections:{...connections,providers:[],primaryProviderId:undefined} });
     }
 
     // ── Tenant-Scoped Conversation Actions ──────────────────────────────
@@ -314,6 +347,18 @@ export async function POST(request: NextRequest) {
     }
 
     // ── Tenant-Scoped Background Queue Process ──────────────────────────
+    if(action==='test-ai') {
+      await consumeRateLimit('test-ai:'+tenantId,10,60000);
+      if(missingBusinessProfile(await settings(tenantId)).length)throw new AppError('Complete your business profile before testing replies.',412);
+      const reply=await generateReply({id:'preview',name:'Test customer',phone:'',channel:'personal',status:'open',takeover:false,ai:true,messages:[{id:'preview',role:'incoming',text:body.text,at:Date.now()}],lastInbound:Date.now(),updated:Date.now(),tags:[],draft:'',recipientId:'',priority:'normal'},tenantId);
+      return NextResponse.json({ok:true,reply:reply||'This message requires personal review. No automatic reply was generated.'});
+    }
+    if(action==='retry-queue') {
+      if(missingBusinessProfile(await settings(tenantId)).length)throw new AppError('Complete your business profile before retrying replies.',412);
+      await db().prepare("UPDATE wa_jobs SET status='pending',attempts=0,created=? WHERE tenant_id=? AND status IN ('pending','failed')").bind(Date.now(),tenantId).run();
+      await audit('Queue retry','Business administrator requested a retry of saved replies.',tenantId);
+      return NextResponse.json({ok:true,...await processNextJob(tenantId)});
+    }
     if (action === 'process') {
       const result = await processNextJob(tenantId);
       return NextResponse.json({ ok: true, ...result });

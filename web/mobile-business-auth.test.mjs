@@ -1,0 +1,25 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+process.env.TURSO_DATABASE_URL='file::memory:';process.env.TURSO_AUTH_TOKEN='fixture';
+process.env.SESSION_SIGNING_KEY='native-business-signing-'.repeat(3);process.env.CREDENTIALS_KEY='12'.repeat(32);
+const {NextRequest}=await import('./whatsapp/node_modules/next/server.js');
+const mobile=await import('./whatsapp/app/api/mobile-auth/route.ts');
+const workspace=await import('./whatsapp/app/api/workspace/route.ts');
+const admin=await import('./whatsapp/app/api/admin/route.ts');
+const req=(path,body,token,method=body?'POST':'GET')=>new NextRequest('https://service.test/business/api/'+path,{method,headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{})},...(body?{body:JSON.stringify(body)}:{})});
+test('native business sessions register, isolate, reject browser token exchange and revoke',async()=>{
+  const details={action:'register',businessName:'Native shop',ownerName:'Shop owner',email:'native@example.test',password:'fixture-long-password'};
+  const browser=req('mobile-auth',details);browser.headers.set('origin','https://service.test');assert.equal((await mobile.POST(browser)).status,403);
+  const withCookie=req('mobile-auth',details);withCookie.headers.set('cookie','wa_session=anything');assert.equal((await mobile.POST(withCookie)).status,403);
+  assert.equal((await mobile.POST(req('mobile-auth',{action:'create-business'}))).status,400);
+  const response=await mobile.POST(req('mobile-auth',details));assert.equal(response.status,200,await response.clone().text());assert.equal(response.headers.get('set-cookie'),null);
+  const data=await response.json();assert.ok(data.token);assert.equal(response.headers.get('cache-control'),'no-store');
+  const session=await (await mobile.GET(req('mobile-auth',undefined,data.token))).json();assert.equal(session.authenticated,true);assert.equal(session.user.name,'Shop owner');
+  const own=await workspace.GET(req('workspace',undefined,data.token));assert.equal(own.status,200);
+  const json=JSON.stringify(await own.json());for(const privateValue of ['Nina','isNinaAdmin','nina_owner_session','/api/whatsapp-service','password_hash','CREDENTIALS_KEY'])assert.ok(!json.includes(privateValue));
+  assert.equal((await workspace.GET(req('workspace?tenantId=other-business',undefined,data.token))).status,403);
+  assert.equal((await admin.GET(req('admin',undefined,data.token))).status,404);
+  assert.equal((await workspace.POST(req('workspace',{action:'save-catalog',catalog:[]},data.token))).status,200);
+  assert.equal((await mobile.DELETE(req('mobile-auth',undefined,data.token,'DELETE'))).status,200);
+  assert.equal((await workspace.GET(req('workspace',undefined,data.token))).status,401);
+});

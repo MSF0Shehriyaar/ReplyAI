@@ -1,0 +1,9 @@
+{
+  "expo": {
+    "name":"Business Workspace", "slug":"business-workspace", "version":"1.0.0",
+    "orientation":"default", "userInterfaceStyle":"light",
+    "ios":{"supportsTablet":true,"bundleIdentifier":"com.business.workspace"},
+    "android":{"package":"com.business.workspace","permissions":["INTERNET"],"allowBackup":false},
+    "plugins":[["expo-secure-store",{"configureAndroidBackup":true}]]
+  }
+}

@@ -3,8 +3,8 @@
 import {useState} from 'react';
 import {Check,ChevronRight,Link2,Loader2,MessageSquare,Monitor,RefreshCw,ShieldCheck,Smartphone,Unplug} from 'lucide-react';
 
-type DeviceStatus={state?:string;connectedPhone?:string;qrDataUrl?:string};
-type Props={tenantId?:string;waStatus:DeviceStatus|null;onRefresh:()=>void;onAction:(action:string,body?:unknown)=>Promise<void>};
+type DeviceStatus={state?:string;connectedPhone?:string;qrDataUrl?:string;error?:string};
+type Props={apiBase?:string;tenantId?:string;businessName?:string;waStatus:DeviceStatus|null;onRefresh:()=>void;onAction:(action:string,body?:unknown)=>Promise<unknown>};
 const features=[
   {icon:Link2,title:'Simple setup',description:'Link your number by scanning a QR code.'},
   {icon:ShieldCheck,title:'Business access',description:'Manage your device from your workspace.'},
@@ -12,7 +12,7 @@ const features=[
   {icon:Monitor,title:'One clear view',description:'Keep conversations and orders together.'},
 ];
 
-export default function DeviceConnection({tenantId,waStatus,onRefresh}:Props) {
+export default function DeviceConnection({apiBase='/business/api',tenantId,businessName='your business',waStatus,onRefresh}:Props) {
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
   const connected=waStatus?.state==='connected';
@@ -26,8 +26,8 @@ export default function DeviceConnection({tenantId,waStatus,onRefresh}:Props) {
     if(busy)return;
     setBusy(true);setError('');
     try {
-      const response=await fetch('/api/whatsapp/connect',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,tenantId})});
-      const result=await response.json();
+      const response=await fetch(apiBase+'/connect',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,tenantId})});
+      const result:any=await response.json();
       if(!response.ok)throw new Error(result.error||'Could not update the connection. Please try again.');
       onRefresh();
     }catch(e){setError(e instanceof Error?e.message:'Could not update the connection.');}
@@ -37,12 +37,12 @@ export default function DeviceConnection({tenantId,waStatus,onRefresh}:Props) {
     <header className="wa-device-status" data-status={state}>
       <span className="wa-device-status-icon"><Smartphone size={22} strokeWidth={1.7} aria-hidden="true"/></span>
       <div className="wa-device-status-copy">
-        <div className="wa-device-status-heading"><h1 id="device-page-title">WhatsApp connection</h1><span className="wa-device-badge" role="status"><span/>{label}</span></div>
+        <div className="wa-device-status-heading"><h1 id="device-page-title">{businessName} · WhatsApp</h1><span className="wa-device-badge" role="status"><span/>{label}</span></div>
         <p>{description}</p>
       </div>
       <button type="button" className="wa-device-refresh" onClick={onRefresh} aria-label="Refresh connection status" title="Refresh connection status"><RefreshCw size={18} aria-hidden="true"/></button>
     </header>
-    {error&&<div className="wa-device-error" role="alert">{error}</div>}
+    {(error||waStatus?.error)&&<div className="wa-device-error" role="alert">{error||waStatus?.error}</div>}
     <div className="wa-device-card">
       {connected?<>
         <div className="wa-device-hero-icon"><Check size={32} strokeWidth={1.7} aria-hidden="true"/></div>
@@ -62,7 +62,7 @@ export default function DeviceConnection({tenantId,waStatus,onRefresh}:Props) {
         <p className="wa-device-description">Connect the number your customers already use. Scan a QR code from WhatsApp’s Linked devices to get started.</p>
         <div className="wa-device-features">{features.map(({icon:Icon,title,description})=><div className="wa-device-feature" key={title}><Icon size={20} strokeWidth={1.7} aria-hidden="true"/><h3>{title}</h3><p>{description}</p></div>)}</div>
         <button className="wa-device-primary" type="button" disabled={connecting} onClick={()=>void deviceAction('connect')}>{connecting?<Loader2 className="wa-device-spinner" size={18} aria-hidden="true"/>:<Link2 size={18} aria-hidden="true"/>}{connecting?'Preparing connection…':'Link WhatsApp device'}{!connecting&&<ChevronRight size={17} aria-hidden="true"/>}</button>
-        <p className="wa-device-footnote">You’ll need access to WhatsApp on the phone you want to link.</p>
+        <p className="wa-device-footnote">This number can belong to only one business workspace. You need access to WhatsApp on the phone you want to link.</p>
       </>}
     </div>
   </section>;

@@ -1,4 +1,5 @@
 import {providerLimited,providerRetryAt} from './provider-limits';
+import {cloudflareConnection} from '../../shared/cloudflare-connection';
 import {limitMetadata,type LimitSnapshot} from './limit-metadata';
 import { automationWindow, channelAutomationWindow } from './automation-window';
 import { replyLengthInstruction, languageReference, needsRomanization, needsReplyRewrite, isRomanHindi, repeatedReply, varyEmoji, profileAge, isProfileQuestion, enforceRespectfulFemaleGrammar, buildSystemPrompt } from './reply-style';
@@ -28,7 +29,7 @@ export function errorResponse(e:unknown){
  }
  const message=e instanceof Error?e.message:'Unknown error';
  console.error('Nina operation failed:',message,e instanceof Error?e.stack:'');
- return Response.json({error:message||'This action could not be completed. Your edits are still here; please try again.'},{status:500});
+ return Response.json({error:'This action could not be completed. Please try again.'},{status:500});
 }
 // Sites dispatch enforces owner-only access before any request reaches this
 // shared workspace. Embedded previews may use platform service access, which
@@ -57,9 +58,10 @@ export async function requireWorkspaceRequest(request?:Request){
   const h = request?.headers ?? await (await import('next/headers')).headers();
   const device = h.get('x-nina-device');
   if (device) { await (await import('./mobile-access')).validateDevice(device); return; }
-  const token = h.get('cookie')?.split(';').map(v=>v.trim()).find(v=>v.startsWith('nina_owner_session='))?.slice('nina_owner_session='.length);
+  const bearer=h.get('authorization')?.startsWith('Bearer ')?h.get('authorization')!.slice(7).trim():undefined;
+  const token = bearer || h.get('cookie')?.split(';').map(v=>v.trim()).find(v=>v.startsWith('nina_owner_session='))?.slice('nina_owner_session='.length);
   if (!await (await import('./owner-session')).validStoredOwnerSession(token, async key => { const row=await db().prepare('SELECT payload FROM workspace_state WHERE key=?').bind(key).first<{payload:string}>(); return row?JSON.parse(row.payload):null; })) throw new AppError('Owner authentication required.',401);
-  if(request && !['GET','HEAD'].includes(request.method)) {
+  if(request && !['GET','HEAD'].includes(request.method)&&!bearer) {
     const origin = request.headers.get('origin');
     if (!isAllowedOrigin(origin, request.url)) throw new AppError('Invalid request origin.',403);
   }
@@ -645,8 +647,7 @@ export async function generateReply(input:string,channel:'dm'|'comment',history:
       }
      }catch{}
     }
-    const cfAccount=key.includes(':')?key.split(':')[0]:'f1099441759c455eba9318b083112257';
-    const cfToken=key.includes(':')?key.split(':')[1]:key;
+    const {account:cfAccount,token:cfToken}=cloudflareConnection(key);
     try{
      response=await fetch(`https://api.cloudflare.com/client/v4/accounts/${cfAccount}/ai/v1/chat/completions`,{
       method:'POST',

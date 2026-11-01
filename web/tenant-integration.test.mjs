@@ -13,6 +13,8 @@ const webhook=await import('./whatsapp/app/api/webhook/route.ts');
 const locationRoute=await import('./whatsapp/app/api/location/route.ts');
 const queue=await import('./whatsapp/lib/queue-ownership.ts');
 const {NextRequest}=await import('./whatsapp/node_modules/next/server.js');
+const {signPrivateWorkspaceRequest,PRIVATE_WORKSPACE_PROOF_HEADER}=await import('./shared/private-workspace-bridge.ts');
+async function privateReq(request){request.headers.set(PRIVATE_WORKSPACE_PROOF_HEADER,await signPrivateWorkspaceRequest(request));return request;}
 const req=(path,body,cookie,origin='https://test.example')=>new NextRequest('https://test.example'+path,{method:body?'POST':'GET',headers:{'content-type':'application/json',origin,...(cookie?{cookie}:{})},...(body?{body:JSON.stringify(body)}:{})});
 
 test('tenant boundaries and API workflows against an isolated database',async t=>{
@@ -91,8 +93,10 @@ test('tenant boundaries and API workflows against an isolated database',async t=
     const signature=Buffer.from(await crypto.subtle.sign('HMAC',key,new TextEncoder().encode(payload))).toString('hex');
     await server.db().prepare('INSERT INTO workspace_state VALUES (?,?)').bind('owner_session:'+jti,JSON.stringify({user:'owner',expiresAt:Date.now()+60000})).run();
     const cookie='nina_owner_session='+btoa(payload)+'.'+signature;
-    assert.equal((await workspace.GET(req('/api/workspace?tenantId='+a.tenantId,undefined,cookie))).status,200);
-    const response=await authRoute.POST(req('/api/auth',{action:'create-business',businessName:'Admin client',ownerName:'Client',email:'client@example.test',password:'temporary-client-password'},cookie));
+    assert.equal((await workspace.GET(req('/api/workspace?tenantId='+a.tenantId,undefined,cookie))).status,401);
+    assert.equal((await (await authRoute.GET(req('/api/auth',undefined,cookie))).json()).authenticated,false);
+    assert.equal((await workspace.GET(await privateReq(req('/api/workspace?tenantId='+a.tenantId,undefined,cookie)))).status,200);
+    const response=await authRoute.POST(await privateReq(req('/api/auth',{action:'create-business',businessName:'Admin client',ownerName:'Client',email:'client@example.test',password:'temporary-client-password'},cookie)));
     assert.equal(response.status,200); assert.equal(response.headers.get('set-cookie'),null);
     assert.equal((await authRoute.POST(req('/api/auth',{action:'create-business',businessName:'Blocked',ownerName:'Client',email:'blocked@example.test',password:'temporary-client-password'},a.cookie))).status,403);
     await server.db().prepare('DELETE FROM workspace_state WHERE key=?').bind('owner_session:'+jti).run();

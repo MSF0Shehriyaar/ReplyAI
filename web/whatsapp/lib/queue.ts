@@ -1,4 +1,6 @@
 import { claimThreadJobs, releaseThread } from './queue-ownership';
+import {missingBusinessProfile} from './business-profile';
+import {confirmCatalogCheckout,isCatalogConfirmation} from './catalog-checkout';
 // ─── WhatsApp Automation — Job Queue Processor ──────────────────────────
 // Processes incoming WhatsApp messages: generates AI replies, handles
 // escalation rules, auto-replies, and customer support workflows.
@@ -40,7 +42,6 @@ function matchAutoReplyRule(
 
   for (const rule of sorted) {
     if (rule.channel !== 'all' && rule.channel !== channel) continue;
-    if (rule.usesToday >= rule.maxUsesPerDay) continue;
 
     switch (rule.triggerType) {
       case 'first_message':
@@ -69,6 +70,19 @@ function matchAutoReplyRule(
   return null;
 }
 
+async function reserveRule(rule:AutoReplyRule,tenantId:string,threadId:string) {
+  const now=Date.now(),day=new Date(now).toISOString().slice(0,10);
+  return db().transaction(async tx=>{
+    const recent=await tx.prepare('SELECT last_used FROM auto_rule_threads WHERE tenant_id=? AND rule_id=? AND thread_id=?').bind(tenantId,rule.id,threadId).first<{last_used:number}>();
+    if(recent&&recent.last_used+rule.cooldownMinutes*60000>now)return false;
+    const usage=await tx.prepare('SELECT uses FROM auto_rule_daily WHERE tenant_id=? AND rule_id=? AND day=?').bind(tenantId,rule.id,day).first<{uses:number}>();
+    if(Number(usage?.uses||0)>=rule.maxUsesPerDay)return false;
+    await tx.prepare('INSERT INTO auto_rule_daily(tenant_id,rule_id,day,uses) VALUES (?,?,?,1) ON CONFLICT(tenant_id,rule_id,day) DO UPDATE SET uses=uses+1').bind(tenantId,rule.id,day).run();
+    await tx.prepare('INSERT INTO auto_rule_threads(tenant_id,rule_id,thread_id,last_used) VALUES (?,?,?,?) ON CONFLICT(tenant_id,rule_id,thread_id) DO UPDATE SET last_used=excluded.last_used').bind(tenantId,rule.id,threadId,now).run();
+    return true;
+  });
+}
+
 // ── Escalation Check ────────────────────────────────────────────────────
 
 async function checkEscalation(thread: WAThread, s: WASettings, tenantId: string): Promise<boolean> {
@@ -86,7 +100,7 @@ async function checkEscalation(thread: WAThread, s: WASettings, tenantId: string
         break;
       case 'keyword': {
         const lastMsg = thread.messages.filter((m) => m.role === 'incoming').at(-1);
-        if (lastMsg && new RegExp(rule.conditionValue, 'i').test(lastMsg.text)) {
+        if (lastMsg && rule.conditionValue.split(',').map(word=>word.trim().toLowerCase()).filter(Boolean).some(word=>lastMsg.text.toLowerCase().includes(word))) {
           thread.status = 'escalated';
           thread.priority = rule.priority;
           await audit('Escalation', `${rule.name}: keyword match in ${thread.name}`, tenantId);
@@ -166,6 +180,14 @@ export async function processThreadJobs(threadId: string, tenantId: string = 'bi
 
   try {
     let thread = await getThread(threadId, tenantId);
+    if(thread&&jobs.every(job=>{
+      const event=JSON.parse(job.payload);
+      const position=thread!.messages.findIndex(message=>message.id===event.id&&message.role==='incoming');
+      return position>=0&&thread!.messages.slice(position+1).some(message=>message.role==='outgoing');
+    })) {
+      for(const job of jobs)await db().prepare("UPDATE wa_jobs SET status='done' WHERE tenant_id=? AND id=?").bind(tenantId,job.id).run();
+      return {processed:jobs.length};
+    }
     const isFirstMessage = !thread;
     const firstEvent = JSON.parse(jobs[0].payload);
 
@@ -215,13 +237,25 @@ export async function processThreadJobs(threadId: string, tenantId: string = 'bi
     thread.updated = Date.now();
 
     const compositeText = incomingTexts.join('\n');
+    // Confirmation binds to the verified transport sender, never a number in chat.
+    const confirmations=jobs.map(job=>JSON.parse(job.payload)).filter(event=>event.channel!=='group'&&isCatalogConfirmation(event.text||''));
+    if(confirmations.length){
+      const replies:string[]=[];
+      for(const event of confirmations){
+        try{const result=await confirmCatalogCheckout(tenantId,event.senderPhone,event.text,thread.id);if(result){replies.push(result.reply);thread.deliveryLocation=result.order.deliveryLocation;thread.tags=Array.from(new Set([...thread.tags,'order_confirmed','catalog_checkout','address_needs_review']));}}
+        catch(error){if(error instanceof AppError&&error.status<500)replies.push(error.message);else throw error;}
+      }
+      thread.draft=replies.join('\n');thread.status='review';
+      await saveThread(thread,tenantId);
+      if(s.enabled&&!s.approval&&!thread.takeover&&thread.ai&&s.personalChats&&!missingBusinessProfile(s).length&&thread.draft)await sendReply(thread,thread.draft,tenantId,true);
+      for(const job of jobs)await db().prepare("UPDATE wa_jobs SET status='done' WHERE id=? AND tenant_id=?").bind(job.id,tenantId).run();
+      return {processed:jobs.length};
+    }
 
     // Extract real phone number and name from composite message text
     if (compositeText) {
       const phoneMatch = compositeText.match(/\b([6-9][0-9]{9})\b/);
-      if (phoneMatch) {
-        thread.phone = `+91 ${phoneMatch[1]}`;
-      }
+      // Message text cannot replace the sender's account identity.
 
       const lines = compositeText.split('\n').map((l: string) => l.trim()).filter(Boolean);
       if (lines.length >= 2 && phoneMatch) {
@@ -252,32 +286,7 @@ export async function processThreadJobs(threadId: string, tenantId: string = 'bi
       }
     }
 
-    // Address & Delivery Location Detection & Geocoding
-    if (compositeText) {
-      try {
-        const { parseAndMapAddress } = await import('./location-service');
-        const parsedLoc = await parseAndMapAddress(compositeText, thread.deliveryLocation);
-        if (parsedLoc) {
-          thread.deliveryLocation = parsedLoc;
-          customer.deliveryLocation = parsedLoc;
-          if (parsedLoc.raw) customer.address = parsedLoc.raw;
-          if (parsedLoc.city) customer.city = parsedLoc.city;
-
-          if (parsedLoc.pincodeMissing) {
-            if (!thread.tags.includes('missing_pincode')) thread.tags.push('missing_pincode');
-            thread.tags = thread.tags.filter((t) => t !== 'address_verified');
-          } else {
-            if (!thread.tags.includes('address_verified')) thread.tags.push('address_verified');
-            thread.tags = thread.tags.filter((t) => t !== 'missing_pincode');
-          }
-        }
-      } catch (locErr) {
-        console.error('[WA] Address parsing error:', locErr);
-      }
-    }
-
-    // Check if order is confirmed from composite incoming messages
-    await syncOrderIfConfirmed(thread, compositeText, null, s, customer, tenantId);
+    // Shipping addresses come only from the structured catalog checkout.
 
     // Sentiment analysis
     if (s.sentimentAnalysisEnabled && compositeText) {
@@ -315,13 +324,18 @@ export async function processThreadJobs(threadId: string, tenantId: string = 'bi
     await saveThread(thread,tenantId);
 
     // Manual takeover and disabled automation apply to rule replies as well as AI.
-    if (thread.takeover || !thread.ai || !s.enabled) {
+    if (thread.takeover || !thread.ai || !s.enabled || (thread.channel==='personal'&&!s.personalChats) || (thread.channel==='group'&&!s.groupChats) || missingBusinessProfile(s).length) {
+      if(s.enabled&&missingBusinessProfile(s).length) {
+        thread.flagged='Complete the business profile before enabling automatic replies.';
+        await saveThread(thread,tenantId);
+      }
       await saveCustomerProfile(customer,tenantId);
       for(const job of jobs) await db().prepare("UPDATE wa_jobs SET status='done' WHERE tenant_id=? AND id=?").bind(tenantId,job.id).run();
       return {processed:jobs.length};
     }
 
     // Check auto-reply rules
+    if(thread.flagged?.startsWith('Delivery uncertain'))throw new AppError('Verify the previous WhatsApp delivery before retrying.',409);
     const withinHours = isBusinessHours(s);
     const autoReply = matchAutoReplyRule(
       s.autoReplyRules,
@@ -331,14 +345,14 @@ export async function processThreadJobs(threadId: string, tenantId: string = 'bi
       withinHours
     );
 
-    if (autoReply) {
+    if (autoReply&&await reserveRule(autoReply,tenantId,threadId)) {
       const replyText =
         autoReply.response ||
         (autoReply.triggerType === 'first_message' ? s.welcomeMessage : '') ||
         (autoReply.triggerType === 'time' ? s.awayMessage : '');
 
       if (replyText && !s.approval) {
-        await sendReply(thread, replyText, tenantId);
+        await sendReply(thread, replyText, tenantId,true);
         for (const j of jobs) {
           await db().prepare("UPDATE wa_jobs SET status='done' WHERE id=? AND tenant_id=?").bind(j.id,tenantId).run();
         }
@@ -366,6 +380,7 @@ export async function processThreadJobs(threadId: string, tenantId: string = 'bi
     }
 
     // Generate SINGLE cohesive AI reply for the combined incoming messages
+    if(thread.flagged?.startsWith('Automation unavailable')||thread.flagged?.startsWith('Complete the business profile'))thread.flagged='';
     console.log(`[WA] 🤖 Generating bulk AI reply for ${thread.name} (${thread.phone}) [${tenantId}]...`);
     const startTime = Date.now();
     const draft = await generateReply(thread, tenantId);
@@ -385,11 +400,9 @@ export async function processThreadJobs(threadId: string, tenantId: string = 'bi
           await new Promise((r) => setTimeout(r, delay * 1000));
         }
         console.log(`[WA] 🚀 Auto-sending single consolidated reply to ${thread.name}...`);
-        await sendReply(thread, draft, tenantId);
+        await sendReply(thread, draft, tenantId,true);
       }
 
-      // Auto-sync order if confirmed in reply or draft
-      await syncOrderIfConfirmed(thread, compositeText, draft, s, customer, tenantId);
     } else {
       await saveThread(thread, tenantId);
     }
@@ -401,8 +414,14 @@ export async function processThreadJobs(threadId: string, tenantId: string = 'bi
     return { processed: jobs.length };
   } catch (err) {
     console.error(`[WA] Error in processThreadJobs for ${threadId}:`, err);
+    const failedThread=await getThread(threadId,tenantId);
+    if(failedThread&&!failedThread.flagged) {
+      failedThread.flagged=err instanceof AppError?'Automation unavailable: '+err.message:'Automation unavailable — check connection, AI service and queue status.';
+      await saveThread(failedThread,tenantId);
+    }
+    await audit('Automation failed','Reply processing failed. Incoming messages are preserved; check AI and WhatsApp connection status.',tenantId);
     for (const j of jobs) {
-      await db().prepare("UPDATE wa_jobs SET status=CASE WHEN attempts>=3 THEN 'failed' ELSE 'pending' END WHERE id=? AND tenant_id=?").bind(j.id,tenantId).run();
+      await db().prepare("UPDATE wa_jobs SET status=CASE WHEN attempts>=? THEN 'failed' ELSE 'pending' END,created=? WHERE id=? AND tenant_id=?").bind(s.maxRetries??3,Date.now()+30000,j.id,tenantId).run();
     }
     return { processed: 0 };
   } finally { await releaseThread(tenantId,threadId,token); }
@@ -441,151 +460,3 @@ export async function processNextJob(tenantId?: string): Promise<{ processed: nu
   return { processed };
 }
 
-// ── Order Auto-Sync Helper ──────────────────────────────────────────────
-async function syncOrderIfConfirmed(
-  thread: WAThread,
-  eventText: string,
-  draft: string | null,
-  s: WASettings,
-  customer: CustomerProfile,
-  tenantId: string = 'biz_titan_watches'
-) {
-  try {
-    const loc = thread.deliveryLocation;
-    const isReadyForDispatch = !!(loc && loc.pincode && !loc.pincodeMissing);
-
-    const fullChatText = (
-      thread.messages.map((m) => m.text).join(' ') +
-      ' ' +
-      (eventText || '') +
-      ' ' +
-      (draft || '')
-    ).toLowerCase();
-
-    // 1. Take confirmation feedback from AI
-    const { queryAIConfirmationFeedback } = await import('./server');
-    let aiFeedback: { isConfirmed: boolean; productName?: string; price?: number; paymentMode?: 'COD' | 'UPI'; reason?: string } = { isConfirmed: false };
-
-    if (eventText && eventText.trim()) {
-      console.log(`[WA] 🧠 Requesting AI confirmation feedback for customer message: "${eventText}"`);
-      aiFeedback = await queryAIConfirmationFeedback(thread, eventText, tenantId);
-      console.log(`[WA] 🤖 AI Confirmation Feedback result: isConfirmed=${aiFeedback.isConfirmed} (${aiFeedback.reason || 'no reason'})`);
-    }
-
-    // 2. Check if AI generated response explicitly confirms the order
-    const isAIDraftConfirming =
-      !!draft &&
-      (/\b(order.*(is|now)?.*confirmed|order has been confirmed|order is confirmed|booking confirmed|express delivery scheduled|order now confirmed)\b/i.test(
-        draft
-      ) ||
-        /\byour order for .* is now confirmed\b/i.test(draft));
-
-    // 3. Fallback regex confirmation
-    const isCustomerRegexConfirming =
-      /^(yes|yep|yeah|sure|confirm|proceed|ok|okay|haan|ha|bilkul|kar do|place order|done|book it)\b/i.test(
-        (eventText || '').trim()
-      ) ||
-      /\b(confirm order|yes confirm|book kar|place order|haan kar do|proceed with cod|proceed with order|confirm it|book this|order confirm)\b/i.test(
-        eventText || ''
-      );
-
-    // AI feedback is primary; AI draft confirmation and regex serve as safety net
-    const isConfirmed = isAIDraftConfirming || ((aiFeedback.isConfirmed || isCustomerRegexConfirming) && (loc?.raw || (eventText && /(?:#|cross|main|street|road|layout|nagar|colony|mysore|pincode|\b\d{6}\b)/i.test(eventText))));
-
-    if (!isConfirmed) {
-      console.log(`[WA] ℹ️ Customer message not recognized as confirmation by AI or rules.`);
-      return;
-    }
-
-    console.log(`[WA] 🎯 Order confirmation APPROVED! [AI Feedback: ${aiFeedback.isConfirmed}, Draft Confirmed: ${isAIDraftConfirming}, Regex: ${isCustomerRegexConfirming}]`);
-
-    // High-precision order extraction using order-parser
-    const { extractOrdersFromThread } = await import('./order-parser');
-    const allCandidateMsgs = [
-      ...thread.messages,
-      ...(eventText ? [{ text: eventText, role: 'incoming' }] : []),
-      ...(draft ? [{ text: draft, role: 'outgoing' }] : []),
-    ];
-    const parsedOrders = extractOrdersFromThread(allCandidateMsgs, s.catalog || []);
-    // Pick the most recent confirmed order event in the thread
-    const targetOrderData = parsedOrders.length > 0 ? parsedOrders[parsedOrders.length - 1] : null;
-
-    if (!targetOrderData) {
-      console.log(`[WA] ℹ️ No specific timepiece identified in thread.`);
-      return;
-    }
-
-    const isUpi =
-      fullChatText.includes('upi') ||
-      fullChatText.includes('online') ||
-      fullChatText.includes('prepaid');
-
-    const { allOrders, saveOrder } = await import('./server');
-    const existingOrders = await allOrders(tenantId);
-    const targetProductId = targetOrderData.productId || 'titan-watch';
-
-    const currentCustName = targetOrderData.customerName !== 'Customer' ? targetOrderData.customerName : (thread.name || customer.name || 'Customer');
-    const currentCustPhone = targetOrderData.customerPhone || thread.phone || customer.phone || '';
-    const orderDeliveryLocation = targetOrderData.deliveryLocation || loc;
-
-    // Match intelligently by product ID or normalized name and amount within this thread to never create duplicates
-    const norm = (s: string) => (s || '').replace(/\s*\(x\d+\)/gi, '').trim().toLowerCase();
-    let order = existingOrders.find(
-      (o) =>
-        o.threadId === thread.id &&
-        (o.productId === targetProductId || norm(o.productName) === norm(targetOrderData.productName)) &&
-        Math.abs(o.amount - targetOrderData.amount) < 10
-    );
-
-    const targetOrderStatus = isReadyForDispatch ? 'ready_for_dispatch' : 'confirmed';
-
-    if (!order) {
-      const orderNum = crypto.randomUUID();
-      const newOrder: WAOrder = {
-        id: `ORD-${orderNum}`,
-        threadId: thread.id,
-        customerName: currentCustName,
-        customerPhone: currentCustPhone,
-        productName: targetOrderData.productName,
-        productId: targetProductId,
-        items: targetOrderData.items,
-        quantity: targetOrderData.quantity,
-        subtotal: targetOrderData.subtotal,
-        discountAmount: targetOrderData.discountAmount,
-        amount: targetOrderData.amount,
-        currency: 'INR',
-        discountCode: targetOrderData.discountCode || s.discountCode || 'TITAN10',
-        paymentMode: isUpi ? 'UPI' : 'COD',
-        paymentStatus: isUpi ? 'paid' : 'pending',
-        orderStatus: targetOrderStatus,
-        deliveryLocation: orderDeliveryLocation,
-        courierPartner: 'BlueDart',
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      };
-      await saveOrder(newOrder, tenantId);
-      console.log(`[WA] 📦 New order confirmed and saved: ${newOrder.id} for ${newOrder.customerName} (${newOrder.productName} - ₹${newOrder.amount})`);
-    } else {
-      order.customerName = currentCustName;
-      order.customerPhone = currentCustPhone;
-      order.deliveryLocation = orderDeliveryLocation;
-      order.productName = targetOrderData.productName;
-      order.productId = targetProductId;
-      order.items = targetOrderData.items;
-      order.quantity = targetOrderData.quantity;
-      order.subtotal = targetOrderData.subtotal;
-      order.discountAmount = targetOrderData.discountAmount;
-      order.amount = targetOrderData.amount;
-      order.orderStatus = targetOrderStatus;
-      order.updatedAt = Date.now();
-      await saveOrder(order, tenantId);
-      console.log(`[WA] 📦 Order updated in wa_orders: ${order.id} for ${order.customerName} (${order.productName} - ₹${order.amount})`);
-    }
-
-    if (!thread.tags.includes('order_confirmed')) {
-      thread.tags.push('order_confirmed');
-    }
-  } catch (ordErr) {
-    console.error('[WA] Order auto-sync error:', ordErr);
-  }
-}

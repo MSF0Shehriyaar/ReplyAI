@@ -1,259 +1,45 @@
 'use client';
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import { ShieldCheck, Lock, ArrowRight, Sparkles, KeyRound, AlertCircle, Eye, EyeOff, UserPlus, LogIn, CheckCircle2, User } from 'lucide-react';
+import {useEffect,useState,type FormEvent} from 'react';
+import {ShieldCheck,ArrowRight,Eye,EyeOff,Camera as Instagram,LockKeyhole} from 'lucide-react';
+type AuthResult={authenticated?:boolean;error?:string;username?:string;user?:{displayName?:string}};
+function destination(){return new URLSearchParams(window.location.search).get('return_to')==='/whatsapp'?'/whatsapp':'/?view=overview';}
 
 export default function LoginPage() {
-  const router = useRouter();
-  const [mode, setMode] = useState<'login' | 'signup'>('login');
-  const [hasSignedUp, setHasSignedUp] = useState<boolean | null>(null);
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const [alreadyAuth, setAlreadyAuth] = useState(false);
-
-  useEffect(() => {
-    // Check auth status & whether signup is already completed
-    fetch('/api/auth')
-      .then(res => res.json())
-      .then((data: any) => {
-        if (data?.authenticated) {
-          setAlreadyAuth(true);
-        }
-        if (data?.hasSignedUp === false) {
-          // If no owner account exists yet, direct user to Sign Up
-          setHasSignedUp(false);
-          setMode('signup');
-        } else {
-          // If signup already completed, show primary Login page
-          setHasSignedUp(true);
-          setMode('login');
-        }
-      })
-      .catch(() => {
-        setHasSignedUp(true);
-        setMode('login');
-      });
-  }, []);
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError('');
-
-    if (mode === 'signup') {
-      if (!username.trim() || username.trim().length < 3) {
-        setError('Username must be at least 3 characters.');
-        return;
-      }
-      if (!password || password.length < 6) {
-        setError('Password must be at least 6 characters.');
-        return;
-      }
-      if (password !== confirmPassword) {
-        setError('Passwords do not match. Please re-enter.');
-        return;
-      }
-    } else {
-      if (!password) {
-        setError('Please enter your owner password or PIN.');
-        return;
-      }
-    }
-
-    setBusy(true);
-
+  const [username,setUsername]=useState('');
+  const [password,setPassword]=useState('');
+  const [visible,setVisible]=useState(false);
+  const [checking,setChecking]=useState(true);
+  const [busy,setBusy]=useState(false);
+  const [error,setError]=useState('');
+  const [owner,setOwner]=useState('');
+  useEffect(()=>{
+    const controller=new AbortController();
+    fetch('/api/auth',{cache:'no-store',signal:controller.signal}).then(async response=>{
+      const data=await response.json() as AuthResult;if(!response.ok)throw new Error(data.error||'Sign-in is temporarily unavailable.');
+      if(data.authenticated)setOwner(data.user?.displayName||data.username||'Owner');
+    }).catch(e=>{if(!controller.signal.aborted)setError(e.message);}).finally(()=>{if(!controller.signal.aborted)setChecking(false);});
+    return()=>controller.abort();
+  },[]);
+  async function submit(event:FormEvent) {
+    event.preventDefault();if(busy)return;setBusy(true);setError('');
     try {
-      const payload = mode === 'signup' 
-        ? { action: 'signup', username: username.trim(), password }
-        : { action: 'login', username: username.trim() || undefined, password };
-
-      const res = await fetch('/api/auth', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      const data: any = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Authentication failed');
-      }
-
-      // Success -> navigate to dashboard
-      router.push('/?view=overview');
-      router.refresh();
-    } catch (err: any) {
-      setError(err.message || 'Unable to authenticate. Verify your credentials.');
-    } finally {
-      setBusy(false);
-    }
+      const response=await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'login',username:username.trim(),password})});
+      const data=await response.json() as AuthResult;if(!response.ok)throw new Error(data.error||'Could not sign in.');
+      const session=await fetch('/api/auth',{cache:'no-store'});
+      if(!session.ok||!(await session.json() as AuthResult).authenticated)throw new Error('The session could not be confirmed. Please allow cookies and retry.');
+      window.location.assign(destination());
+    }catch(e){setError(e instanceof Error?e.message:'Could not sign in.');setBusy(false);}
   }
-
-  return (
-    <main className="login-page">
-      <div className="login-art">
-        <div className="login-brand">
-          <span className="brand-mark">n<span>✦</span></span>
-          <span>Nina</span>
-        </div>
-        <div className="login-intro">
-          <div className="section-kicker">PRIVATE OWNER WORKSPACE</div>
-          <h1>Your conversations.<br />Your voice. In control.</h1>
-          <p>
-            Private Instagram AI automation, uncensored creative testing, and multi-model routing in one encrypted command center.
-          </p>
-          <div className="login-orbit">
-            <Sparkles size={34} />
-            <span>Single Owner Security<br />Private & Isolated</span>
-          </div>
-        </div>
-        <small>Nina Control Room · End-to-End Private Session · v2.4</small>
-      </div>
-
-      <section className="login-form">
-        <div className="login-mobile-brand">
-          <span className="brand-mark">n<span>✦</span></span>
-          <span>Nina</span>
-          <span className="brand-caption">CONTROL ROOM</span>
-        </div>
-
-        <div className="login-lock-badge">
-          <ShieldCheck size={32} />
-        </div>
-        
-        <div className="section-kicker">
-          {mode === 'signup' ? 'FIRST-TIME SETUP' : 'OWNER AUTHENTICATION'}
-        </div>
-        <h2>{mode === 'signup' ? 'Create Owner Account' : 'Owner Sign In'}</h2>
-        <p>
-          {mode === 'signup'
-            ? 'Set your permanent owner username and password. Nobody else will be able to register or access your connected Instagram accounts and data.'
-            : 'Enter your owner username and password or PIN to unlock your workspace.'}
-        </p>
-
-        {alreadyAuth ? (
-          <div className="already-logged-in-card">
-            <CheckCircle2 size={24} style={{ color: '#10b981' }} />
-            <div>
-              <b style={{ fontSize: '15px' }}>Session Active</b>
-              <p style={{ margin: '4px 0 0', fontSize: '13px' }}>You are authenticated on this browser as Workspace Owner.</p>
-            </div>
-            <button 
-              className="button primary full-button" 
-              style={{ marginTop: '14px' }}
-              onClick={() => router.push('/?view=overview')}
-            >
-              Enter Dashboard <ArrowRight size={17} />
-            </button>
-          </div>
-        ) : (
-          <form onSubmit={handleSubmit} className="login-pin-form">
-            {error && (
-              <div className="login-error-alert" role="alert">
-                <AlertCircle size={16} />
-                <span>{error}</span>
-              </div>
-            )}
-
-            <div className="field">
-              <label htmlFor="login-username">
-                <span>{mode === 'signup' ? 'Owner Username' : 'Username'}</span>
-              </label>
-              <div className="relative-input-wrapper">
-                <input
-                  id="login-username"
-                  type="text"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  placeholder={mode === 'signup' ? 'e.g. nina_owner' : 'Enter owner username'}
-                  autoComplete="username"
-                  autoFocus={mode === 'signup'}
-                  required={mode === 'signup'}
-                  disabled={busy}
-                />
-              </div>
-            </div>
-
-            <div className="field">
-              <label htmlFor="login-password">
-                <span>{mode === 'signup' ? 'Owner Password' : 'Password or PIN'}</span>
-              </label>
-              <div className="relative-input-wrapper">
-                <input
-                  id="login-password"
-                  type={showPassword ? 'text' : 'password'}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder={mode === 'signup' ? 'Create a secure password (min 6 chars)' : 'Enter your password or PIN'}
-                  autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
-                  autoFocus={mode === 'login'}
-                  maxLength={64}
-                  className="pin-input"
-                  disabled={busy}
-                  required
-                />
-                <button
-                  type="button"
-                  className="toggle-visibility-btn"
-                  onClick={() => setShowPassword(!showPassword)}
-                  tabIndex={-1}
-                  aria-label="Toggle password visibility"
-                >
-                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
-              </div>
-            </div>
-
-            {mode === 'signup' && (
-              <div className="field">
-                <label htmlFor="confirm-password">
-                  <span>Confirm Password</span>
-                </label>
-                <input
-                  id="confirm-password"
-                  type={showPassword ? 'text' : 'password'}
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  placeholder="Confirm your password"
-                  autoComplete="new-password"
-                  disabled={busy}
-                  required
-                />
-              </div>
-            )}
-
-            <button
-              type="submit"
-              className="button primary login-cta full-button"
-              disabled={busy}
-            >
-              {busy ? (
-                <>Verifying credentials…</>
-              ) : mode === 'signup' ? (
-                <>
-                  <UserPlus size={17} />
-                  Create Owner Account & Unlock
-                  <ArrowRight size={17} />
-                </>
-              ) : (
-                <>
-                  <KeyRound size={17} />
-                  Unlock Workspace
-                  <ArrowRight size={17} />
-                </>
-              )}
-            </button>
-          </form>
-        )}
-
-
-        <div className="login-security" style={{ marginTop: '22px' }}>
-          <ShieldCheck size={14} />
-          <span>PBKDF2 SHA-256 Encrypted Keystore · Single-Device Cookie Authentication</span>
-        </div>
-      </section>
-    </main>
-  );
+  return <main className="login-page owner-access">
+    <section className="login-art"><a className="login-brand" href="/login"><span className="brand-mark"><Instagram size={24}/></span>Nina</a><div className="login-intro"><p className="section-kicker">PRIVATE INSTAGRAM WORKSPACE</p><h1>Your conversations.<br/>Your voice.<br/>In control.</h1><p>A private space for your Instagram connections, conversations and automation.</p></div><p className="owner-assurance"><ShieldCheck size={18}/>One owner. Protected access.</p></section>
+    <section className="login-form"><div className="login-lock-badge"><LockKeyhole size={24}/></div><p className="section-kicker">OWNER ACCESS</p><h2>{owner?'Welcome back, '+owner: 'Sign in to Nina'}</h2><p>Use your owner account to open your private Instagram workspace.</p>
+      {error&&<p className="login-error-alert" role="alert">{error}</p>}
+      {checking?<p role="status">Checking your owner session…</p>:owner?<div className="already-logged-in-card"><ShieldCheck size={22}/><strong>{owner} is signed in</strong><button className="button primary full-button" onClick={()=>window.location.assign(destination())}>Open {owner}’s workspace<ArrowRight size={17}/></button></div>:<form onSubmit={submit} className="login-pin-form">
+        <label className="field"><span>Owner username</span><input autoComplete="username" required maxLength={160} value={username} onChange={e=>setUsername(e.target.value)} disabled={busy}/></label>
+        <label className="field"><span>Password or PIN</span><span className="owner-password"><input type={visible?'text':'password'} autoComplete="current-password" required maxLength={256} value={password} onChange={e=>setPassword(e.target.value)} disabled={busy}/><button type="button" aria-label={visible?'Hide password':'Show password'} aria-pressed={visible} onClick={()=>setVisible(!visible)}>{visible?<EyeOff size={18}/>:<Eye size={18}/>}</button></span></label>
+        <button type="submit" className="button primary full-button" disabled={busy}>{busy?'Opening '+(username||'your')+'’s workspace…':'Sign in to '+(username||'owner workspace')}<ArrowRight size={17}/></button>
+      </form>}
+      <p className="owner-assurance"><ShieldCheck size={16}/>Private owner access. No public registration.</p>
+    </section>
+  </main>;
 }

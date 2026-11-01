@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {routeTarget,upstreamPath,channelHeaders} from './gateway-routing.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -71,51 +72,22 @@ const whatsappService = startService(
 
 // ── Reverse Proxy Gateway ──────────────────────────────────────────────────
 
-function routeTarget(urlPath, req) {
-  if (
-    urlPath.startsWith('/whatsapp') ||
-    urlPath.startsWith('/catalog') ||
-    urlPath.startsWith('/api/whatsapp') ||
-    urlPath.startsWith('/api/connect') ||
-    urlPath.startsWith('/_next/static/whatsapp')
-  ) {
-    return { host: '127.0.0.1', port: whatsappPort };
-  }
-
-  // Check Referer header for _next static assets & chunks
-  const referer = (req && req.headers && (req.headers.referer || req.headers.Referer)) || '';
-  if (urlPath.startsWith('/_next/') || urlPath.startsWith('/__next')) {
-    if (referer.includes('/whatsapp') || referer.includes('/catalog')) {
-      return { host: '127.0.0.1', port: whatsappPort };
-    }
-  }
-
-  return { host: '127.0.0.1', port: instagramPort };
-}
-
 function forwardRequest(req, res, target, isRetry = false) {
+  const publicHeaders=channelHeaders(req.headers,target);
   const proxyReq = http.request(
     {
       host: target.host,
       port: target.port,
-      path: req.url,
+      path: upstreamPath(req.url,target),
       method: req.method,
       headers: {
-        ...req.headers,
+        ...publicHeaders,
         'x-forwarded-for': req.socket.remoteAddress,
         'x-forwarded-proto': req.headers['x-forwarded-proto'] || 'https',
         'x-forwarded-host': req.headers.host,
       },
     },
     (proxyRes) => {
-      // If a Next.js static asset / chunk returns 404 from one service, fallback to the other service!
-      const isNextAsset = req.url && (req.url.startsWith('/_next/') || req.url.startsWith('/__next'));
-      if (proxyRes.statusCode === 404 && isNextAsset && !isRetry && (req.method === 'GET' || req.method === 'HEAD')) {
-        const altPort = target.port === whatsappPort ? instagramPort : whatsappPort;
-        forwardRequest(req, res, { host: '127.0.0.1', port: altPort }, true);
-        return;
-      }
-
       res.writeHead(proxyRes.statusCode || 200, proxyRes.headers);
       proxyRes.pipe(res, { end: true });
     }
@@ -123,19 +95,14 @@ function forwardRequest(req, res, target, isRetry = false) {
 
   proxyReq.on('error', (err) => {
     if (res.headersSent) return;
-    if (!isRetry && req.url?.startsWith('/_next/static/') && (req.method === 'GET' || req.method === 'HEAD')) {
-      const altPort = target.port === whatsappPort ? instagramPort : whatsappPort;
-      forwardRequest(req, res, { host: '127.0.0.1', port: altPort }, true);
-      return;
-    }
     res.writeHead(502, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(`
       <html>
         <body style="background:#090d16;color:#e2e8f0;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;">
           <div style="text-align:center;padding:32px;background:#111827;border-radius:12px;border:1px solid #1f2937;max-width:440px;">
-            <div style="font-size:28px;margin-bottom:12px;">⏳ Booting Nina Automation Services...</div>
+            <div style="font-size:28px;margin-bottom:12px;">Service is starting</div>
             <p style="color:#94a3b8;font-size:14px;line-height:1.5;">
-              Both Instagram and WhatsApp services are initializing. Please refresh in a few moments.
+              Please try again in a few moments.
             </p>
           </div>
         </body>
@@ -157,9 +124,9 @@ server.on('upgrade', (req, socket, head) => {
   const proxyReq = http.request({
     host: target.host,
     port: target.port,
-    path: req.url,
+    path: upstreamPath(req.url,target),
     method: req.method,
-    headers: req.headers,
+    headers: channelHeaders(req.headers,target),
   });
 
   proxyReq.on('upgrade', (proxyRes, proxySocket, proxyHead) => {

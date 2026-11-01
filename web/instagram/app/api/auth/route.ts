@@ -3,7 +3,7 @@ import { readState, writeState, db, audit, isAllowedOrigin } from '@/lib/server'
 
 
 const SESSION_COOKIE_NAME = 'nina_owner_session';
-const SECRET_SIGN_KEY = process.env.SESSION_SIGNING_KEY || '';
+function requestToken(req:NextRequest){const authorization=req.headers.get('authorization');return authorization?authorization.startsWith('Bearer ')?authorization.slice(7).trim():undefined:req.cookies.get(SESSION_COOKIE_NAME)?.value;}
 
 export interface OwnerCredentials {
   username?: string;
@@ -40,10 +40,11 @@ async function hashString(value: string, salt: string): Promise<string> {
 }
 
 async function signToken(payload: string): Promise<string> {
+  const SECRET_SIGN_KEY=process.env.SESSION_SIGNING_KEY || '';
   if (SECRET_SIGN_KEY.length < 32) throw new Error('Session signing is not configured.');
   const data = { ...JSON.parse(payload), jti: crypto.randomUUID() };
   payload = JSON.stringify(data);
-  await writeState('owner_session:' + data.jti, { user: data.user, expiresAt: data.exp });
+  await writeState('owner_session:' + data.jti, { user: data.user, expiresAt: data.exp,createdAt:data.iat||Date.now(),lastSeenAt:Date.now() });
   const enc = new TextEncoder();
   const key = await crypto.subtle.importKey(
     'raw',
@@ -67,7 +68,7 @@ export async function GET(req: NextRequest) {
     const creds = await readState<OwnerCredentials | null>('owner_credentials', null);
     const hasSignedUp = !!creds?.hasSignedUp;
     
-    const cookie = req.cookies.get(SESSION_COOKIE_NAME)?.value;
+    const cookie = requestToken(req);
     const authenticated = cookie ? await verifyToken(cookie) : false;
 
     return NextResponse.json({
@@ -76,7 +77,7 @@ export async function GET(req: NextRequest) {
       username: authenticated ? (creds?.username || 'Owner') : undefined,
       hasPin: !!(creds?.pinHash || creds?.pin),
       user: authenticated ? { userId: 'owner', displayName: creds?.username || 'Workspace Owner' } : undefined
-    }, { status: authenticated ? 200 : 401 });
+    }, { status: 200,headers:{'Cache-Control':'no-store'} });
   } catch (err: any) {
     return NextResponse.json({ authenticated: false, hasSignedUp: false, error: 'Authentication unavailable' }, { status: 500 });
   }
@@ -155,7 +156,7 @@ export async function POST(req: NextRequest) {
 
     if (creds?.hasSignedUp && creds.passwordHash && creds.salt) {
       // 1. Verify username (case-insensitive check against stored username or hash)
-      let userMatches = true;
+      let userMatches = !!enteredUser;
       if (enteredUser) {
         if (creds.username) {
           userMatches = enteredUser.toLowerCase() === creds.username.toLowerCase();
@@ -220,15 +221,15 @@ export async function POST(req: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   const origin = request.headers.get('origin');
-  if (!isAllowedOrigin(origin, request.url)) return NextResponse.json({error:'Invalid request origin.'},{status:403});
-  const token = request.cookies.get(SESSION_COOKIE_NAME)?.value;
+  const token = requestToken(request);
+  const bearer=request.headers.get('authorization')?.startsWith('Bearer ');
+  if (!(bearer&&token&&await verifyToken(token))&&!isAllowedOrigin(origin, request.url)) return NextResponse.json({error:'Invalid request origin.'},{status:403});
   if (token && await verifyToken(token)) {
-    const payload = JSON.parse(atob(token.split('.')[0]));
+    const payload = JSON.parse(atob(decodeURIComponent(token).split('.')[0]));
     await writeState('owner_session:'+payload.jti,{revokedAt:Date.now()});
     await audit('Owner logout','Owner session revoked');
   }
   const res = NextResponse.json({ ok: true });
   res.cookies.delete(SESSION_COOKIE_NAME);
-  res.cookies.delete('wa_session');
   return res;
 }

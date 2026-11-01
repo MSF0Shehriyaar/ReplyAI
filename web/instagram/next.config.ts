@@ -9,7 +9,13 @@ if (fs.existsSync(sharedEnv) && typeof (process as any).loadEnvFile === "functio
 }
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  async headers() {
+    return [
+      {source:'/:path*',headers:[{key:'Referrer-Policy',value:'no-referrer'},{key:'X-Robots-Tag',value:'noindex, nofollow, noarchive'}]},
+      {source:'/whatsapp/:path*',headers:[{key:'Referrer-Policy',value:'no-referrer'},{key:'X-Robots-Tag',value:'noindex, nofollow, noarchive'},{key:'Cache-Control',value:'private, no-store'}]},
+      {source:'/api/whatsapp-service/:path*',headers:[{key:'Referrer-Policy',value:'no-referrer'},{key:'Cache-Control',value:'private, no-store'}]},
+    ];
+  },
 };
 
 export default nextConfig;

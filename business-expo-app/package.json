@@ -1,0 +1,6 @@
+{
+  "name": "business-workspace-mobile", "version":"1.0.0", "private":true, "main":"index.js",
+  "scripts":{"start":"expo start", "android":"expo start --android", "typecheck":"tsc --noEmit", "export:android":"expo export --platform android"},
+  "dependencies":{"expo":"~58.0.22", "react":"19.3.0", "react-native":"0.88.1", "expo-status-bar":"~58.0.4", "expo-secure-store":"~58.0.2", "react-native-safe-area-context":"~5.10.1"},
+  "devDependencies":{"typescript":"~6.0.3", "@types/react":"~19.3.0"}
+}

@@ -1,0 +1,23 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+process.env.TURSO_DATABASE_URL='file::memory:';process.env.TURSO_AUTH_TOKEN='fixture';process.env.SESSION_SIGNING_KEY='reset-test-'.repeat(5);process.env.CREDENTIALS_KEY='12'.repeat(32);
+const server=await import('./whatsapp/lib/server.ts');
+const {resetWhatsApp}=await import('./scripts/whatsapp-reset-core.mjs');
+const {ownerWhatsAppSettings}=await import('./whatsapp/lib/owner-workspace.ts');
+test('WhatsApp reset requires a backup and preserves owner credentials, Instagram data and provider keys',async()=>{
+  await server.initDatabase();const database=server.db();
+  await database.prepare('INSERT INTO workspace_state(key,payload) VALUES (?,?)').bind('owner_credentials','fixture-password-hash').run();
+  await database.prepare('INSERT INTO encrypted_secrets(key,cipher) VALUES (?,?)').bind('provider:instagram-main','fixture-provider-cipher').run();
+  await database.prepare('INSERT INTO encrypted_secrets(key,cipher) VALUES (?,?)').bind('wa_access_token','fixture-old-wa-cipher').run();
+  await database.prepare('INSERT INTO wa_threads(id,payload,tenant_id,version,updated) VALUES (?,?,?,?,?)').bind('old-thread','{}','biz_titan_watches',1,Date.now()).run();
+  await assert.rejects(resetWhatsApp(database,{ownerSettings:ownerWhatsAppSettings(),backupSink:async()=>({written:false})}));
+  assert.equal((await database.prepare('SELECT count(*) AS n FROM wa_threads').first()).n,1);
+  let snapshot;const result=await resetWhatsApp(database,{ownerSettings:ownerWhatsAppSettings({profile:{name:'Nina Kurain',city:'Mumbai',country:'India',bio:'Saved creator facts'}}),backupSink:async data=>{snapshot=data;return {written:true,path:'fixture-encrypted-backup'};}});
+  assert.equal(result.deleted.wa_threads,1);assert.equal(snapshot.tables.wa_threads.length,1);
+  for(const table of ['business_users','auth_sessions','wa_threads','wa_orders','wa_customers','wa_jobs','catalog_checkouts','catalog_publications'])assert.equal((await database.prepare('SELECT count(*) AS n FROM '+table).first()).n,0);
+  assert.equal((await database.prepare('SELECT count(*) AS n FROM business_tenants').first()).n,1);
+  assert.equal((await server.settings()).businessName,'Nina Kurain');assert.equal((await server.settings()).supportPhone,'919845012345');assert.equal((await server.settings()).enabled,false);
+  assert.equal((await database.prepare('SELECT payload FROM workspace_state WHERE key=?').bind('owner_credentials').first()).payload,'fixture-password-hash');
+  assert.equal((await database.prepare('SELECT cipher FROM encrypted_secrets WHERE key=?').bind('provider:instagram-main').first()).cipher,'fixture-provider-cipher');
+  assert.equal(await database.prepare('SELECT key FROM encrypted_secrets WHERE key=?').bind('wa_access_token').first(),null);
+});

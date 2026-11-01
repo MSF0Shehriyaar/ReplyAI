@@ -7,9 +7,9 @@ export const dynamic='force-dynamic';
 let lastCleanupAt=0;
 let lastWorkspaceCache:any=null;
 
-export async function GET(){
+export async function GET(request:Request){
  try{
-  await requireWorkspaceRequest();
+  await requireWorkspaceRequest(request);
   const [s,threads,connections,logs,usage,queue]=await Promise.all([
    settings(),
    allThreads(),

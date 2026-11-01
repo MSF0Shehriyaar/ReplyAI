@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import "../../shared/product-theme.css";
 
 export const metadata: Metadata = {
   title: "Nina · Control Room",

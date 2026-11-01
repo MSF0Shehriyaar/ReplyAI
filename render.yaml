@@ -7,7 +7,7 @@ services:
     rootDir: web
     buildCommand: pnpm install && pnpm run build
     startCommand: pnpm run start
-    healthCheckPath: /api/automation-status
+    healthCheckPath: /api/health
     autoDeploy: true
     envVars:
       - key: NODE_VERSION
@@ -21,6 +21,8 @@ services:
       - key: TURSO_AUTH_TOKEN
         sync: false
       - key: CREDENTIALS_KEY
+        sync: false
+      - key: SESSION_SIGNING_KEY
         sync: false
       - key: GROQ_API_KEY
         sync: false

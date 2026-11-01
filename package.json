@@ -1,0 +1,1 @@
+{"name":"automation-mobile-apps","version":"1.0.0","private":true,"workspaces":["expo-app","business-expo-app"],"scripts":{"admin":"npm run start --workspace expo-app","business":"npm run start --workspace business-expo-app","typecheck:mobile":"npm run typecheck --workspaces","check:public-bundles":"node mobile/check-public-bundles.mjs"}}
