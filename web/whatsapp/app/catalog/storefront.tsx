@@ -20,9 +20,10 @@ export default function Storefront({catalog,submitCheckout,presentation={},allow
   const dialog=useRef<HTMLDialogElement>(null),details=useRef<HTMLDialogElement>(null),id=useId();
   useEffect(()=>{if(open)dialog.current?.showModal();else dialog.current?.close();},[open]);
   useEffect(()=>{if(detail)details.current?.showModal();else details.current?.close();},[detail]);
-  const categories=useMemo(()=>Array.from(new Set([...(catalog.categories||[]),...catalog.products.map(p=>p.category)].filter(Boolean))),[catalog]);
-  const products=useMemo(()=>{const list=catalog.products.filter(p=>(!category||p.category===category)&&(!query||(p.name+' '+p.category+' '+p.description).toLowerCase().includes(query.toLowerCase())));return sort==='price-low'?list.toSorted((a,b)=>a.price-b.price):sort==='price-high'?list.toSorted((a,b)=>b.price-a.price):list.toSorted((a,b)=>Number(b.bestseller||false)-Number(a.bestseller||false));},[catalog,category,query,sort]);
-  const lines=catalog.products.filter(p=>bag[p.id]>0).map(product=>({product,quantity:bag[product.id]}));
+  const safeCatalog = catalog || { name: 'Titan Watches', products: [], categories: [], slug: 'titan-watches' };
+  const categories=useMemo(()=>Array.from(new Set([...(safeCatalog.categories||[]),...(safeCatalog.products||[]).map(p=>p.category)].filter(Boolean))),[safeCatalog]);
+  const products=useMemo(()=>{const list=(safeCatalog.products||[]).filter(p=>(!category||p.category===category)&&(!query||(p.name+' '+p.category+' '+p.description).toLowerCase().includes(query.toLowerCase())));return sort==='price-low'?list.toSorted((a,b)=>a.price-b.price):sort==='price-high'?list.toSorted((a,b)=>b.price-a.price):list.toSorted((a,b)=>Number(b.bestseller||false)-Number(a.bestseller||false));},[safeCatalog,category,query,sort]);
+  const lines=(safeCatalog.products||[]).filter(p=>bag[p.id]>0).map(product=>({product,quantity:bag[product.id]}));
   const total=lines.reduce((sum,line)=>sum+line.product.price*line.quantity,0),quantity=lines.reduce((sum,line)=>sum+line.quantity,0),currency=lines[0]?.product.currency||'INR';
   function changeQuantity(product:CatalogItem,next:number){if(!product.inStock)return;setBag(previous=>({...previous,[product.id]:Math.max(0,Math.min(20,next))}));setResult(null);setRequestKey('');}
   function openBag(){setStep(result?'complete':'bag');setError('');setOpen(true);}

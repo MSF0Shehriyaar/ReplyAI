@@ -2262,19 +2262,21 @@ const ui: Record<string, React.CSSProperties> = {
   },
   msgIncoming: {
     alignSelf: 'flex-start',
-    background: 'var(--workspace-surface)',
-    border: '1px solid rgba(24,35,52,0.08)',
+    background: '#ffffff',
+    border: '1px solid #e2e8f0',
     borderBottomLeftRadius: 4,
-    color: '#334155',
+    color: '#0f172a',
+    boxShadow: '0 1px 2px rgba(0,0,0,0.03)',
   },
   msgOutgoing: {
     alignSelf: 'flex-end',
-    background: 'var(--workspace-soft)',
-    border: '1px solid rgba(16, 185, 129, 0.25)',
+    background: '#f1eefb',
+    border: '1px solid #ddd6fe',
     borderBottomRightRadius: 4,
-    color: '#ecfdf5',
+    color: '#1e1b4b',
+    boxShadow: '0 1px 2px rgba(115, 84, 218, 0.05)',
   },
-  msgTime: { fontSize: 12, color: 'rgba(148, 163, 184, 0.7)', textAlign: 'right', marginTop: 5 },
+  msgTime: { fontSize: 11, color: '#64748b', textAlign: 'right', marginTop: 5, fontWeight: 500 },
 
   draftBox: {
     padding: '12px 18px',
