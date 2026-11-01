@@ -21,15 +21,21 @@ export default function PublicationSettings({
   
   // Resolve current origin safely (never force production domain on localhost/demo)
   const isDemo = typeof window !== 'undefined' && (window.location.port === '4173' || window.location.pathname.startsWith('/catalog'));
+  const isLocal = typeof window !== 'undefined' && (
+    window.location.hostname === 'localhost' ||
+    window.location.hostname === '127.0.0.1' ||
+    window.location.port === '4173' ||
+    window.location.port === '3000'
+  );
   const origin = typeof window !== 'undefined'
     ? window.location.origin
     : (process.env.NODE_ENV === 'production' ? 'https://automation.ninakurainservices.in' : 'http://localhost:3000');
   
   const pathPrefix = isDemo ? '/catalog/' : '/business/catalog/';
   const fullLiveUrl = `${origin}${pathPrefix}${formattedSlug || 'your-chosen-slug'}`;
-  const liveUrl = publication?.url?.startsWith('http')
-    ? publication.url
-    : (slug ? `${origin}${pathPrefix}${formattedSlug}` : '');
+  const liveUrl = (isLocal || isDemo)
+    ? (slug ? `${origin}${pathPrefix}${formattedSlug}` : fullLiveUrl)
+    : (publication?.url?.startsWith('http') ? publication.url : (slug ? `${origin}${pathPrefix}${formattedSlug}` : ''));
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
