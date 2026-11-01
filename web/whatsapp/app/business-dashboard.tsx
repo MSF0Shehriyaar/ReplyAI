@@ -362,10 +362,77 @@ export default function BusinessDashboard({onSessionExpired,identity,apiBase='/b
         })}
       </nav>
 
-      <div className="wa-ai-status" role="status">
-        <div><strong>{!currentSettings.enabled?'Automatic replies paused':!workspace.connections.aiVerified?'Administrator AI setup required':currentSettings.approval?'AI drafts require approval':'Automatic replies enabled'}</strong>
-        <p>{!currentSettings.enabled?'Enable replies in AI settings when your business is ready.':!workspace.connections.aiVerified?'Your AI service is unavailable. Contact support.':currentSettings.approval?'Review and send generated drafts from your inbox.':'Replies use the administrator’s shared AI service and your business catalog.'}{!workspace.connections.whatsappVerified?' Connect WhatsApp to receive and send messages.':''}</p></div>
-        <div className="wa-ai-actions"><button onClick={()=>setActiveTab('brain')}>AI settings</button>{!!((workspace.queue?.pending||0)+(workspace.queue?.failed||0))&&workspace.userRole!=='business_operator'&&<button onClick={()=>void doAction('retry-queue')}>Retry replies ({(workspace.queue?.pending||0)+(workspace.queue?.failed||0)})</button>}</div>
+      <div
+        className="wa-ai-status"
+        role="status"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: 16,
+          padding: '14px 20px',
+          background: '#f8fafc',
+          borderBottom: '1px solid #e2e8f0',
+          color: '#334155',
+        }}
+      >
+        <div style={{ flex: '1 1 260px', minWidth: 240 }}>
+          <strong style={{ fontSize: 13.5, fontWeight: 700, color: '#1e293b' }}>
+            {!currentSettings.enabled
+              ? 'Automatic replies paused'
+              : !workspace.connections.aiVerified
+              ? 'Administrator AI setup required'
+              : currentSettings.approval
+              ? 'AI drafts require approval'
+              : 'Automatic replies enabled'}
+          </strong>
+          <p style={{ fontSize: 12.5, lineHeight: 1.5, margin: '3px 0 0', color: '#64748b' }}>
+            {!currentSettings.enabled
+              ? 'Enable replies in AI settings when your business is ready.'
+              : !workspace.connections.aiVerified
+              ? 'Your AI service is unavailable. Contact support.'
+              : currentSettings.approval
+              ? 'Review and send generated drafts from your inbox.'
+              : 'Replies use the administrator’s shared AI service and your business catalog.'}
+            {!workspace.connections.whatsappVerified ? ' Connect WhatsApp to receive and send messages.' : ''}
+          </p>
+        </div>
+        <div className="wa-ai-actions" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <button
+            onClick={() => setActiveTab('brain')}
+            style={{
+              padding: '8px 14px',
+              borderRadius: 8,
+              border: '1px solid #e0d5f8',
+              background: '#ffffff',
+              color: '#7354da',
+              fontSize: 12.5,
+              fontWeight: 600,
+              cursor: 'pointer',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+            }}
+          >
+            AI settings
+          </button>
+          {!!((workspace.queue?.pending || 0) + (workspace.queue?.failed || 0)) && workspace.userRole !== 'business_operator' && (
+            <button
+              onClick={() => void doAction('retry-queue')}
+              style={{
+                padding: '8px 14px',
+                borderRadius: 8,
+                border: '1px solid #cbd5e1',
+                background: '#ffffff',
+                color: '#475569',
+                fontSize: 12.5,
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              Retry replies ({(workspace.queue?.pending || 0) + (workspace.queue?.failed || 0)})
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Main Container */}
