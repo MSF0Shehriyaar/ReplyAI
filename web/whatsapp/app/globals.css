@@ -1,32 +1,18 @@
 @import "tailwindcss";
 
 @import "../../shared/design-system.css";
+@import "./access.css";
+@import "./device-connection.css";
 /* ══════════════════════════════════════════════════════════════
    CSS Design Tokens — WhatsApp Automation Hub
    ══════════════════════════════════════════════════════════════ */
 :root {
-  --bg-deep:      #020509;
-  --bg-base:      #070c17;
-  --bg-elevated:  #0c1526;
-  --bg-surface:   rgba(12, 22, 42, 0.75);
-  --bg-glass:     rgba(8, 15, 30, 0.85);
-
-  --text-primary: #f1f5f9;
-  --text-muted:   #64748b;
-  --text-faint:   #334155;
-
-  --border-faint:  rgba(255, 255, 255, 0.06);
-  --border-light:  rgba(255, 255, 255, 0.10);
-
-  --brand: #10b981;
-  --brand-glow: rgba(16, 185, 129, 0.30);
-  --brand-soft: rgba(16, 185, 129, 0.12);
-
-  --gold:   #f59e0b;
-  --blue:   #3b82f6;
-  --purple: #7354da;
-  --rose:   #ec4899;
-  --red:    #ef4444;
+  color-scheme:light;
+  --bg-deep:#f4f7f5;--bg-base:#f4f7f5;--bg-elevated:#fff;--bg-surface:#fff;--bg-glass:#fffffff2;
+  --text-primary:#1b3027;--text-muted:#55685d;--text-faint:#64786b;
+  --border-faint:#e6ece8;--border-light:#d5e0d8;
+  --brand:#0d7357;--brand-glow:#0d735710;--brand-soft:#edf6f0;
+  --gold:#956213;--blue:#285cb8;--purple:#6550a8;--rose:#b94066;--red:#b83f36;
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -35,7 +21,7 @@
 *, *::before, *::after { box-sizing: border-box; }
 
 body {
-  background: radial-gradient(ellipse at 15% 5%, #0e1828 0%, #070c17 50%, #020509 100%);
+  background:var(--nina-canvas);
   color: var(--text-primary);
   min-height: 100vh;
   margin: 0;
@@ -331,8 +317,8 @@ input:focus, textarea:focus, select:focus {
    Dark select / option override (force dark bg in Chrome)
    ══════════════════════════════════════════════════════════════ */
 select option {
-  background: #0d1b32;
-  color: #f1f5f9;
+  background:#fff;
+  color:#1b3027;
 }
 
 .wa-app {background:var(--nina-canvas)!important;color:var(--nina-ink)!important;min-height:100dvh!important;--nina-accent:#087f6b;--nina-soft:#e9f6f2;}
@@ -372,3 +358,12 @@ select option {
   .wa-app [data-layout=columns] {grid-template-columns:1fr!important;}
 }
 @media(min-width:768px) {.wa-mobile-back-btn{display:none!important;}}
+/* Dashboard typography and palette use the same light surface model as account access. */
+.wa-dashboard {font-family:var(--nina-font)!important;line-height:1.55;}
+.wa-dashboard button {font-family:inherit;letter-spacing:0!important;}
+.wa-dashboard p {line-height:1.65;}
+.wa-dashboard label {color:#34473b;}
+.wa-dashboard input,.wa-dashboard textarea,.wa-dashboard select {font-weight:400!important;}
+.wa-dashboard .wa-top-actions {font-size:13px;}
+.wa-dashboard .wa-nav-btn {font-weight:600!important;}
+.wa-dashboard [style*="text-transform: uppercase"] {letter-spacing:.06em!important;}

@@ -9,7 +9,7 @@ const definitions: Record<string, { key: string; columns: string }> = {
   webhook_idempotency: { key: 'id', columns: 'id TEXT NOT NULL, received_at INTEGER NOT NULL' },
 };
 
-export async function migrateTenantTables(database: ReturnType<typeof createTursoAdapter>, legacyTenant = process.env.LEGACY_WHATSAPP_TENANT_ID) {
+export async function migrateTenantTables(database: ReturnType<typeof createTursoAdapter>, legacyTenant = process.env.LEGACY_WHATSAPP_TENANT_ID || 'biz_titan_watches') {
   await database.transaction(async tx => {
     for (const [table, definition] of Object.entries(definitions)) {
       const info = (await tx.prepare(`PRAGMA table_info(${table})`).all<{ name: string; pk: number }>()).results;

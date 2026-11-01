@@ -1,3 +1,4 @@
+import {hasSessionCredentials} from '@/lib/session-credentials';
 // ─── WhatsApp Connection API — Multi-Tenant QR Device Pairing ────────────
 import { NextRequest, NextResponse } from 'next/server';
 import { requireTenantAccess } from '@/lib/auth';
@@ -16,6 +17,7 @@ export const dynamic = 'force-dynamic';
 // GET — Get connection status + QR code for authenticated tenant
 export async function GET(request: NextRequest) {
   try {
+    if(!hasSessionCredentials(request)) throw new AppError('Authentication required. Please sign in.',401);
     await initDatabase();
     const targetTenantId = request.nextUrl.searchParams.get('tenantId');
     const { tenantId } = await requireTenantAccess(request, targetTenantId);

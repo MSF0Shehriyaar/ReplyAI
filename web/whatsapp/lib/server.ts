@@ -802,9 +802,8 @@ export async function getTursoStats(): Promise<TursoUsageStats> {
 // ── Provider Selection (reads from shared encrypted_secrets & workspace_state)
 
 export async function providerConnections(tenantId: string = 'biz_titan_watches'): Promise<ProviderConnection[]> {
+  // The administrator supplies the shared pool to every business. Keys never leave the server.
   const ownKey = await tenantSecret(tenantId,'groq_key');
-  if (ownKey) return [{id:'tenant-groq',label:'Business AI',provider:'groq',model:(await settings(tenantId)).model,verified:true}];
-  if (tenantId !== 'biz_titan_watches') return [];
   // 1. Read shared providers from Instagram's workspace_state (key: 'ai_providers')
   let sharedProviders: ProviderConnection[] = [];
   try {
@@ -825,21 +824,25 @@ export async function providerConnections(tenantId: string = 'biz_titan_watches'
   const sharedKey = await db()
     .prepare("SELECT key FROM encrypted_secrets WHERE key='groq_key'")
     .first<{ key: string }>();
-  const s = await settings();
+  const s = await settings(tenantId);
+  let instagramVerified=false;
+  try {const row=await db().prepare("SELECT payload FROM workspace_state WHERE key='connection'").first<{payload:string}>(); instagramVerified=!!(row&&JSON.parse(row.payload).aiVerified);}catch{}
 
   const legacyList = sharedKey
     ? [
         {
-          id: 'shared-groq',
+          id: 'legacy-groq',
           label: 'Shared Groq Key (from Instagram)',
           provider: 'groq' as const,
           model: s.model || 'openai/gpt-oss-120b',
-          verified: true,
+          verified: instagramVerified,
         },
       ]
     : [];
 
-  return [...sharedProviders, ...waProviders, ...legacyList];
+  const pool=[...sharedProviders,...waProviders,...legacyList];
+  if(!pool.some(p=>p.verified)&&ownKey)pool.push({id:'tenant-groq',label:'Business AI',provider:'groq',model:s.model,verified:true});
+  return Array.from(new Map(pool.map(p=>[p.id,p])).values());
 }
 
 export async function selectedProvider(preferredId?: string, tenantId: string = 'biz_titan_watches'): Promise<ProviderConnection | undefined> {
@@ -885,76 +888,12 @@ export async function generateReply(thread: WAThread, tenantId: string = 'biz_ti
   }
 
   // Build the prompt
-  const systemPrompt = buildSystemPrompt(s, thread, intent);
+  const systemPrompt = buildSystemPrompt(s, thread, intent, tenantId);
   const messages = buildConversationMessages(systemPrompt, thread);
 
-  // Get provider
-  const provider = await selectedProvider(undefined,tenantId);
-  if (!provider) throw new AppError('No AI provider configured.', 412);
-
-  const apiKey = provider.id === 'tenant-groq' ? await tenantSecret(tenantId,'groq_key') : await secret(providerSecretId(provider.id));
-  if (!apiKey) throw new AppError('AI provider key not found.', 412);
-
-  const config = providerConfig[provider.provider];
-  const body = completionBody(provider.provider, provider.model, messages, 0.6);
-
-  let url: string;
-  if (provider.provider === 'aihorde') {
-    throw new AppError('AI Horde not supported for WhatsApp (too slow for customer support).', 400);
-  } else if (provider.provider === 'cloudflare') {
-    const [cfAccount, cfToken] = apiKey.split(':');
-    url = `${config.base}/${cfAccount}/ai/v1/chat/completions`;
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + cfToken },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(30000),
-    });
-    if (!response.ok) throw new AppError(`Provider error (${response.status})`, 502);
-    const data: any = await response.json();
-    return cleanHumanReply(data.choices?.[0]?.message?.content || '');
-  } else {
-    url = config.base + '/chat/completions';
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + apiKey },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(30000),
-    });
-    if (!response.ok) throw new AppError(`Provider error (${response.status})`, 502);
-    const data: any = await response.json();
-    await db().prepare('INSERT INTO tenant_usage(tenant_id,calls,tokens,updated_at) VALUES (?,1,?,?) ON CONFLICT(tenant_id) DO UPDATE SET calls=calls+1,tokens=tokens+excluded.tokens,updated_at=excluded.updated_at').bind(tenantId,Number(data.usage?.total_tokens)||0,Date.now()).run();
-    let reply = data.choices?.[0]?.message?.content?.trim() || '';
-
-    // Retry if generic refusal
-    if (isGenericRefusal(reply)) {
-      const retryBody = {
-        ...body,
-        temperature: 0.9,
-        messages: [
-          ...messages,
-          {
-            role: 'system',
-            content:
-              'The previous response was a generic AI refusal. You must respond in character as a customer support agent. Never mention being an AI.',
-          },
-        ],
-      };
-      const retryResponse = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + apiKey },
-        body: JSON.stringify(retryBody),
-        signal: AbortSignal.timeout(30000),
-      });
-      if (retryResponse.ok) {
-        const retryData: any = await retryResponse.json();
-        const retryReply = retryData.choices?.[0]?.message?.content?.trim() || '';
-        if (!isGenericRefusal(retryReply)) reply = retryReply;
-      }
-    }
-
-    return cleanHumanReply(reply);
-  }
+  const {completeBusinessAI}=await import('./shared-ai');
+  const result=await completeBusinessAI(tenantId,messages,0.6);
+  return cleanHumanReply(result);
 }
 
 // ── AI Order Confirmation Feedback Evaluator ──────────────────────────────
@@ -974,21 +913,6 @@ export async function queryAIConfirmationFeedback(
   try {
     const isAffirmativeRegex = /^(yes|yep|yeah|sure|confirm|proceed|ok|okay|haan|ha|bilkul|kar do|place order|done|book it)\b/i.test((latestMessage || '').trim());
 
-    const provider = await selectedProvider(undefined,tenantId);
-    if (!provider) {
-      return { isConfirmed: isAffirmativeRegex, reason: 'Provider fallback: regex affirmative check' };
-    }
-
-    const apiKey = provider.id === 'tenant-groq' ? await tenantSecret(tenantId,'groq_key') : await secret(providerSecretId(provider.id));
-    if (!apiKey) {
-      return { isConfirmed: isAffirmativeRegex, reason: 'API key fallback: regex affirmative check' };
-    }
-
-    const config = providerConfig[provider.provider];
-    if (!config) {
-      return { isConfirmed: isAffirmativeRegex, reason: 'Config fallback: regex affirmative check' };
-    }
-
     const recentContext = thread.messages
       .slice(-6)
       .map((m) => `${m.role === 'incoming' ? 'Customer' : 'Nina'}: ${m.text}`)
@@ -997,14 +921,14 @@ export async function queryAIConfirmationFeedback(
     const evalMessages = [
       {
         role: 'system',
-        content: `You are an AI order confirmation evaluator for Titan Watches luxury concierge.
+        content: `You evaluate order confirmation for this business. Only assess the supplied conversation; never invent product, payment or delivery facts.
 Analyze the conversation history and the customer's latest incoming message.
 Determine if the customer is confirming, agreeing to, or placing an order (e.g. saying "yes", "confirm", "proceed", "haan", "ok", "book it", "bhej do", "sure", "ha kar do", "yes please", or agreeing to delivery/payment details).
 
 Respond strictly with a JSON object in this format:
 {
   "isConfirmed": true or false,
-  "productName": "name of the watch model or null",
+  "productName": "product name or null",
   "price": estimated numeric price or null,
   "paymentMode": "COD" or "UPI",
   "reason": "concise explanation of why the customer message confirms or does not confirm the order"
@@ -1016,33 +940,9 @@ Respond strictly with a JSON object in this format:
       },
     ];
 
-    const body = completionBody(provider.provider, provider.model, evalMessages, 0.1);
+    const {completeBusinessAI}=await import('./shared-ai');
+    const rawContent=await completeBusinessAI(tenantId,evalMessages,0.1);
 
-    let url: string;
-    let authHeader: string;
-    if (provider.provider === 'cloudflare') {
-      const [cfAccount, cfToken] = apiKey.split(':');
-      url = `${config.base}/${cfAccount}/ai/v1/chat/completions`;
-      authHeader = 'Bearer ' + cfToken;
-    } else {
-      url = config.base + '/chat/completions';
-      authHeader = 'Bearer ' + apiKey;
-    }
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: authHeader },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(12000),
-    });
-
-    if (!response.ok) {
-      console.warn(`[WA AI Feedback] Provider HTTP error ${response.status}`);
-      return { isConfirmed: isAffirmativeRegex, reason: 'HTTP error fallback' };
-    }
-
-    const data: any = await response.json();
-    const rawContent = data.choices?.[0]?.message?.content?.trim() || '';
     const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       const parsed = JSON.parse(jsonMatch[0]);

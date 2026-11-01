@@ -1,3 +1,4 @@
+import {hasSessionCredentials} from '@/lib/session-credentials';
 // ─── WhatsApp Workspace API — Multi-Tenant State Management ─────────────
 import { NextRequest, NextResponse } from 'next/server';
 import {
@@ -49,6 +50,7 @@ export const revalidate = 0;
 // GET — Load tenant-scoped workspace state
 export async function GET(request: NextRequest) {
   try {
+    if(!hasSessionCredentials(request)) throw new AppError('Authentication required. Please sign in.',401);
     await initDatabase();
 
     const targetTenantId = request.nextUrl.searchParams.get('tenantId');

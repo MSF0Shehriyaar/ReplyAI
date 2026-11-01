@@ -1,7 +1,9 @@
 'use client';
 
-import { MessageSquare, ShoppingBag, Package, Building2, SlidersHorizontal, BarChart3, Link2, ShieldCheck, ChevronLeft, RefreshCw } from 'lucide-react';
+import { MessageSquare, ShoppingBag, Package, Building2, SlidersHorizontal, BarChart3, Link2, ShieldCheck, Trash2, RefreshCw } from 'lucide-react';
 import { mapSearch, mapDirections, mapQuery } from '@/lib/map-links';
+import WorkspaceGate from './workspace-gate';
+import ConnectView from './device-connection';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type {
   WAWorkspace,
@@ -48,6 +50,10 @@ const navigationIcons:Record<string,React.ElementType>={inbox:MessageSquare,orde
 // ── Main Command Center ─────────────────────────────────────────────────
 
 export default function WhatsAppCommandCenter() {
+  return <WorkspaceGate renderDashboard={expire=><WhatsAppDashboard onSessionExpired={expire}/>}/>;
+}
+
+function WhatsAppDashboard({onSessionExpired}:{onSessionExpired:()=>void}) {
   const [workspace, setWorkspace] = useState<WAWorkspace>(initialWAWorkspace);
   const [activeTab, setActiveTab] = useState<'inbox' | 'orders' | 'catalog' | 'business' | 'brain' | 'analytics' | 'connect' | 'admin'>('inbox');
   const [selectedThread, setSelectedThread] = useState<WAThread | null>(null);
@@ -62,26 +68,35 @@ export default function WhatsAppCommandCenter() {
   const [activeTenantId,setActiveTenantId]=useState<string>();
   const scopeVersion=useRef(0);
   const [workspaceError,setWorkspaceError]=useState('');
+  const pollPaused=useRef(false);
 
   const refresh = useCallback(async () => {
     try {
       const version=scopeVersion.current;
       const data = await loadWorkspace(activeTenantId);
       if(version!==scopeVersion.current) return;
-      setWorkspace(data as any); setWorkspaceError('');
+      pollPaused.current = false;
+      setWorkspace(data as any);
+      setWorkspaceError('');
+      if (!activeTenantId && data.activeAccountId) {
+        setActiveTenantId(data.activeAccountId);
+      }
     } catch (e: any) {
       setWorkspaceError(e.message);
-      if(e.status===401 || e.status===403) { setWorkspace(initialWAWorkspace); setWaStatus(null); if(e.status===401) setShowAdminLoginModal(true); }
+      if(e.status===401 || e.status===403) { setWorkspace(initialWAWorkspace); setWaStatus(null); onSessionExpired(); }
+      else pollPaused.current=true;
     } finally {
       setLoading(false);
     }
-  }, [activeTenantId]);
+  }, [activeTenantId,onSessionExpired]);
 
   const refreshConnect = useCallback(async () => {
     try {
       const version=scopeVersion.current;
       const res = await fetch('/api/whatsapp/connect'+(activeTenantId?'?tenantId='+encodeURIComponent(activeTenantId):''));
       if (res.ok) {const data=await res.json(); if(version===scopeVersion.current) setWaStatus(data);}
+      else if(res.status===401 || res.status===403) onSessionExpired();
+      else {pollPaused.current=true;setWorkspaceError('Connection status is unavailable. Please retry.');}
     } catch {}
   }, [activeTenantId]);
 
@@ -89,18 +104,10 @@ export default function WhatsAppCommandCenter() {
     refresh();
     refreshConnect();
     const interval = setInterval(() => {
+      if(document.hidden || pollPaused.current)return;
       refresh();
       refreshConnect();
     }, 4000);
-
-    // Auto-detect admin query intent (e.g. from Instagram Control Room)
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      if (params.get('admin') === '1' || params.get('admin') === 'true') {
-        setShowAdminLoginModal(true);
-      }
-
-    }
 
     return () => clearInterval(interval);
   }, [refresh, refreshConnect]);
@@ -127,7 +134,15 @@ export default function WhatsAppCommandCenter() {
       if(['connect','disconnect','logout'].includes(action)) {
         const response=await fetch('/api/whatsapp/connect',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,tenantId:activeTenantId})});
         if(!response.ok) throw new Error((await response.json()).error);
-      } else await api(action, {tenantId:activeTenantId,...body});
+      } else {
+        if(action==='save-order' && body?.order?.deliveryLocation?.raw) {
+          const response=await fetch('/api/whatsapp/location',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tenantId:activeTenantId,address:body.order.deliveryLocation.raw})});
+          const result=await response.json();
+          if(!response.ok) throw new Error(result.error || 'Could not check delivery address');
+          body={...body,order:{...body.order,deliveryLocation:result.location}};
+        }
+        await api(action, {tenantId:activeTenantId,...body});
+      }
       await refresh();
       showToast('Action successful ✓');
     } catch (e: any) {
@@ -183,7 +198,7 @@ export default function WhatsAppCommandCenter() {
             }}
           />
           <p style={{ color: '#596579', margin: 0, fontWeight: 500, letterSpacing: 0.5 }}>
-            Initializing {currentSettings.businessName} Concierge Engine...
+            Opening your business workspace…
           </p>
         </div>
       </div>
@@ -202,7 +217,7 @@ export default function WhatsAppCommandCenter() {
   ];
 
   return (
-    <div className="wa-app" style={ui.root}>
+    <div className="wa-app wa-dashboard" style={ui.root}>
       {/* Toast Notification */}
       {toast && <div style={ui.toast}>{toast}</div>}
 
@@ -213,12 +228,10 @@ export default function WhatsAppCommandCenter() {
             style={{
               ...ui.brandIcon,
               borderColor: `${themeColor}60`,
-              background: `linear-gradient(135deg, ${themeColor}25 0%, rgba(8,15,30,0.9) 100%)`,
+              background: 'var(--nina-soft)',
               boxShadow: `0 0 16px ${themeColor}28`,
             }}
-          >
-            
-          </div>
+          ><MessageSquare size={20} aria-hidden="true" /></div>
           <div>
             <div style={ui.brandTitleRow}>
               <span style={ui.brandTitle}>{currentSettings.businessName}</span>
@@ -255,7 +268,7 @@ export default function WhatsAppCommandCenter() {
               color: '#96610a',
               padding: '5px 12px',
               borderRadius: 8,
-              fontSize: 11.5,
+              fontSize: 12,
               fontWeight: 600,
               textDecoration: 'none',
               transition: 'all 0.15s ease',
@@ -276,7 +289,7 @@ export default function WhatsAppCommandCenter() {
                 border: '1px solid rgba(115, 84, 218, 0.4)',
                 padding: '5px 11px',
                 borderRadius: 8,
-                fontSize: 11.5,
+                fontSize: 12,
                 fontWeight: 700,
                 color: '#6550c8',
                 whiteSpace: 'nowrap',
@@ -292,11 +305,11 @@ export default function WhatsAppCommandCenter() {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ action: 'logout' }),
                   }).catch(() => {});
-                  await refresh();
+                  onSessionExpired();
                   setActiveTab('inbox');
                   showToast('Signed out successfully');
                 }}
-                style={{ background: 'none', border: 'none', color: '#a78bfa', cursor: 'pointer', fontSize: 10, textDecoration: 'underline', padding: 0 }}
+                style={{ background: 'none', border: 'none', color: '#6550a8', cursor: 'pointer', fontSize: 12, textDecoration: 'underline', padding: 0 }}
               >
                 Logout
               </button>
@@ -306,17 +319,17 @@ export default function WhatsAppCommandCenter() {
               onClick={async () => {
                 if(!workspace.storageReady) {setShowAdminLoginModal(true);return;}
                 const response=await fetch('/api/whatsapp/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'logout'})});
-                if(response.ok) {scopeVersion.current++;setActiveTenantId(undefined);setWorkspace(initialWAWorkspace);setWaStatus(null);setSelectedThread(null);setShowAdminLoginModal(true);}
+                if(response.ok) {scopeVersion.current++;setActiveTenantId(undefined);setWorkspace(initialWAWorkspace);setWaStatus(null);setSelectedThread(null);onSessionExpired();}
               }}
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: 5,
-                background: 'rgba(24,35,52,0.08)',
+                background: 'var(--nina-surface)',
                 border: '1px solid rgba(255,255,255,0.14)',
                 padding: '5px 12px',
                 borderRadius: 8,
-                fontSize: 11.5,
+                fontSize: 12,
                 fontWeight: 600,
                 color: '#475569',
                 cursor: 'pointer',
@@ -459,7 +472,7 @@ export default function WhatsAppCommandCenter() {
         )}
       </main>
 
-      {workspaceError && <div role="alert" style={{padding:16,color:'#f87171'}}>{workspaceError}</div>}
+      {workspaceError && <div role="alert" className="wa-workspace-error">{workspaceError}<button onClick={()=>{pollPaused.current=false;void refresh();void refreshConnect();}}>Retry</button></div>}
       {/* Quick Business Setup Modal */}
       {showBusinessModal && (
         <BusinessSetupModal
@@ -478,7 +491,11 @@ export default function WhatsAppCommandCenter() {
           onClose={() => setShowAdminLoginModal(false)}
           onSuccess={async () => {
             setShowAdminLoginModal(false);
+            pollPaused.current = false;
+            setWorkspaceError('');
+            scopeVersion.current++;
             await refresh();
+            await refreshConnect();
             setActiveTab('inbox');
             showToast('Signed in successfully');
           }}
@@ -644,17 +661,17 @@ function InboxView({
 
                 <div style={ui.threadMetaRow}>
                   <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                    <span style={{ color: '#64748b', fontSize: 11 }}>{t.phone}</span>
+                    <span style={{ color: '#64748b', fontSize: 12 }}>{t.phone}</span>
                     {t.tags.includes('order_confirmed') && (
                       <span
                         style={{
-                          fontSize: 10,
+                          fontSize: 12,
                           background: 'rgba(16, 185, 129, 0.25)',
                           color: '#087f6b',
                           border: '1px solid #10b981',
                           padding: '1px 6px',
                           borderRadius: 4,
-                          fontWeight: 800,
+                          fontWeight: 700,
                         }}
                       >
                         ✓ CONFIRMED
@@ -663,7 +680,7 @@ function InboxView({
                     {t.deliveryLocation && (
                       <span
                         style={{
-                          fontSize: 10,
+                          fontSize: 12,
                           background: t.deliveryLocation.verified ? 'rgba(16, 185, 129, 0.2)' : 'rgba(245, 158, 11, 0.2)',
                           color: t.deliveryLocation.verified ? '#087f6b' : '#96610a',
                           padding: '1px 6px',
@@ -671,7 +688,7 @@ function InboxView({
                           fontWeight: 700,
                         }}
                       >
-                         {t.deliveryLocation.verified ? 'Mapped' : 'Need PIN'}
+                         {t.deliveryLocation.verified ? 'Confirmed' : 'Review location'}
                       </span>
                     )}
                   </div>
@@ -694,7 +711,7 @@ function InboxView({
       <div className={`wa-chat-panel ${mobileView === 'list' ? 'wa-hide-on-mobile' : ''}`} style={ui.chatPanel}>
         {!selectedThread ? (
           <div style={ui.noChatSelected}>
-            <div style={{ fontSize: 52, marginBottom: 12 }}></div>
+            <MessageSquare size={40} strokeWidth={1.4} aria-hidden="true" style={{color:"#8795a8",marginBottom:12}} />
             <h3 style={{ margin: 0, color: '#182334', fontSize: 18 }}>Select a Conversation</h3>
             <p style={{ color: '#64748b', fontSize: 13, marginTop: 6, maxWidth: 360, textAlign: 'center' }}>
               Choose any client chat from the sidebar to review live messages, send human replies, or monitor AI responses.
@@ -730,7 +747,7 @@ function InboxView({
                     {selectedThread.customerProfile?.vip && ' '}
                     {selectedThread.name}
                   </h3>
-                  <span style={{ fontSize: 11, color: '#64748b' }}>{selectedThread.phone}</span>
+                  <span style={{ fontSize: 12, color: '#64748b' }}>{selectedThread.phone}</span>
                 </div>
               </div>
 
@@ -762,7 +779,7 @@ function InboxView({
               return (
                 <div
                   style={{
-                    background: 'rgba(10, 18, 36, 0.85)',
+                    background: 'var(--nina-surface)',
                     borderBottom: '1px solid rgba(255, 255, 255, 0.07)',
                     padding: '6px 16px',
                     display: 'flex',
@@ -777,7 +794,7 @@ function InboxView({
                       justifyContent: 'space-between',
                       alignItems: 'center',
                       gap: 8,
-                      fontSize: 11.5,
+                      fontSize: 12,
                     }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, overflow: 'hidden', flexWrap: 'wrap' }}>
@@ -790,7 +807,7 @@ function InboxView({
                             style={{
                               background: threadOrder.orderStatus === 'ready_for_dispatch' ? 'rgba(16,185,129,0.2)' : 'rgba(59,130,246,0.2)',
                               color: threadOrder.orderStatus === 'ready_for_dispatch' ? '#087f6b' : '#2563eb',
-                              fontSize: 9,
+                              fontSize: 12,
                               fontWeight: 700,
                               padding: '1px 5px',
                               borderRadius: 4,
@@ -825,7 +842,7 @@ function InboxView({
                             color: '#2563eb',
                             padding: '2px 8px',
                             borderRadius: 5,
-                            fontSize: 11,
+                            fontSize: 12,
                             fontWeight: 600,
                             textDecoration: 'none',
                           }}
@@ -842,7 +859,7 @@ function InboxView({
                           color: '#596579',
                           borderRadius: 5,
                           padding: '2px 8px',
-                          fontSize: 11,
+                          fontSize: 12,
                           fontWeight: 600,
                           cursor: 'pointer',
                         }}
@@ -861,7 +878,7 @@ function InboxView({
                         display: 'flex',
                         flexDirection: 'column',
                         gap: 8,
-                        fontSize: 11.5,
+                        fontSize: 12,
                         color: '#475569',
                       }}
                     >
@@ -869,7 +886,7 @@ function InboxView({
                         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', color: '#596579' }}>
                           <span>Product: <b style={{ color: '#182334' }}>{threadOrder.productName}</b></span>
                           <span>Payment: <b style={{ color: '#38bdf8' }}>{threadOrder.paymentMode}</b> ({threadOrder.paymentStatus})</span>
-                          {threadOrder.courierPartner && <span>Courier: <b style={{ color: '#a78bfa' }}>{threadOrder.courierPartner}</b> ({threadOrder.trackingNumber || 'Tracking pending'})</span>}
+                          {threadOrder.courierPartner && <span>Courier: <b style={{ color: '#6550a8' }}>{threadOrder.courierPartner}</b> ({threadOrder.trackingNumber || 'Tracking pending'})</span>}
                         </div>
                       )}
 
@@ -878,7 +895,7 @@ function InboxView({
                           <div>
                             <div style={{ color: '#182334', fontWeight: 500 }}>{loc.raw}</div>
                             {loc.lat && loc.lng && (
-                              <div style={{ color: '#64748b', fontSize: 10.5, marginTop: 2 }}>
+                              <div style={{ color: '#64748b', fontSize: 12, marginTop: 2 }}>
                                 GPS: {loc.lat.toFixed(4)}° N, {loc.lng.toFixed(4)}° E
                               </div>
                             )}
@@ -893,7 +910,7 @@ function InboxView({
                                 color: '#fff',
                                 padding: '3px 8px',
                                 borderRadius: 5,
-                                fontSize: 11,
+                                fontSize: 12,
                                 fontWeight: 600,
                                 textDecoration: 'none',
                               }}
@@ -913,7 +930,7 @@ function InboxView({
                                 border: '1px solid #475569',
                                 borderRadius: 5,
                                 padding: '3px 8px',
-                                fontSize: 11,
+                                fontSize: 12,
                                 cursor: 'pointer',
                               }}
                             >
@@ -951,7 +968,7 @@ function InboxView({
             {selectedThread.draft && (
               <div style={ui.draftBox}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: '#f59e0b' }}> AI CONSULTATIVE DRAFT</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: '#956213' }}> AI CONSULTATIVE DRAFT</span>
                   <div style={{ display: 'flex', gap: 6 }}>
                     <button
                       onClick={() => onAction('approve-thread', { threadId: selectedThread.id })}
@@ -977,9 +994,7 @@ function InboxView({
                 onClick={() => setShowQuick(!showQuick)}
                 style={ui.quickReplyBtn}
                 title="Quick Product & Policy Replies"
-              >
-                
-              </button>
+              ><MessageSquare size={18} aria-hidden="true" /></button>
 
               <input
                 type="text"
@@ -1011,7 +1026,7 @@ function InboxView({
             {/* Quick Replies Drawer */}
             {showQuick && (
               <div style={ui.quickDrawer}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: '#f59e0b', marginBottom: 8 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#956213', marginBottom: 8 }}>
                    QUICK RESPONSES & WATCH SPECS
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 8 }}>
@@ -1025,7 +1040,7 @@ function InboxView({
                       style={ui.quickChip}
                     >
                       <div style={{ fontWeight: 600, color: '#182334', fontSize: 12 }}>{qr.label}</div>
-                      <div style={{ color: '#596579', fontSize: 11, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                      <div style={{ color: '#596579', fontSize: 12, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
                         {qr.text}
                       </div>
                     </button>
@@ -1096,7 +1111,7 @@ function CatalogView({
     <div style={{ padding: '24px 32px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
         <div>
-          <h2 style={{ margin: 0, fontSize: 22, color: '#182334', fontWeight: 800 }}> Product & Watch Catalog</h2>
+          <h2 style={{ margin: 0, fontSize: 22, color: '#182334', fontWeight: 700 }}> Product & Watch Catalog</h2>
           <p style={{ color: '#596579', fontSize: 13, marginTop: 4 }}>
             The AI refers to this exact live catalog to quote prices, highlight specifications, and suggest matching products to customers.
           </p>
@@ -1247,7 +1262,7 @@ function BusinessSettingsView({
     <div style={{ padding: '24px 32px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
         <div>
-          <h2 style={{ margin: 0, fontSize: 22, color: '#182334', fontWeight: 800 }}> Store Profile & Policies</h2>
+          <h2 style={{ margin: 0, fontSize: 22, color: '#182334', fontWeight: 700 }}> Store Profile & Policies</h2>
           <p style={{ color: '#596579', fontSize: 13, marginTop: 4 }}>
             Configure your brand identity, store hours, warranty, shipping, and active discount vouchers.
           </p>
@@ -1385,7 +1400,7 @@ function AIBrainSettingsView({
     <div style={{ padding: '24px 32px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
         <div>
-          <h2 style={{ margin: 0, fontSize: 22, color: '#182334', fontWeight: 800 }}> AI Thinking & Human Texting Engine</h2>
+          <h2 style={{ margin: 0, fontSize: 22, color: '#182334', fontWeight: 700 }}> AI Thinking & Human Texting Engine</h2>
           <p style={{ color: '#596579', fontSize: 13, marginTop: 4 }}>
             Tailor the consultative intelligence, response length, typing simulations, and tone mirroring.
           </p>
@@ -1400,7 +1415,7 @@ function AIBrainSettingsView({
         <div style={{ ...ui.settingsCard, gridColumn: '1 / -1' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
             <h4 style={ui.cardSectionHeader}> AI Conversational Language & Mode</h4>
-            <span style={{ fontSize: 11, background: 'rgba(16, 185, 129, 0.15)', color: '#087f6b', padding: '2px 8px', borderRadius: 6, fontWeight: 700 }}>
+            <span style={{ fontSize: 12, background: 'rgba(16, 185, 129, 0.15)', color: '#087f6b', padding: '2px 8px', borderRadius: 6, fontWeight: 700 }}>
               Active: {form.language === 'Hinglish' ? 'Casual Hinglish' : form.language === 'English' ? 'English' : form.language === 'Hindi' ? 'Hindi' : 'Auto-Detect'}
             </span>
           </div>
@@ -1452,12 +1467,12 @@ function AIBrainSettingsView({
                       {lang.icon} {lang.title}
                     </div>
                     {lang.badge && (
-                      <span style={{ fontSize: 9, background: '#10b981', color: '#0f172a', fontWeight: 800, padding: '1px 6px', borderRadius: 4 }}>
+                      <span style={{ fontSize: 12, background: '#10b981', color: '#0f172a', fontWeight: 700, padding: '1px 6px', borderRadius: 4 }}>
                         {lang.badge}
                       </span>
                     )}
                   </div>
-                  <div style={{ color: '#596579', fontSize: 11, marginTop: 4, lineHeight: 1.4 }}>{lang.desc}</div>
+                  <div style={{ color: '#596579', fontSize: 12, marginTop: 4, lineHeight: 1.4 }}>{lang.desc}</div>
                 </div>
               );
             })}
@@ -1490,7 +1505,7 @@ function AIBrainSettingsView({
                 <div style={{ fontWeight: 600, color: form.length === p.id ? '#10b981' : '#182334', fontSize: 13 }}>
                   {p.title}
                 </div>
-                <div style={{ color: '#596579', fontSize: 11, marginTop: 2 }}>{p.desc}</div>
+                <div style={{ color: '#596579', fontSize: 12, marginTop: 2 }}>{p.desc}</div>
               </div>
             ))}
           </div>
@@ -1584,7 +1599,7 @@ function AnalyticsView({
 }) {
   return (
     <div style={{ padding: '24px 32px' }}>
-      <h2 style={{ margin: '0 0 20px', fontSize: 22, color: '#182334', fontWeight: 800 }}> Live Performance & Leads</h2>
+      <h2 style={{ margin: '0 0 20px', fontSize: 22, color: '#182334', fontWeight: 700 }}> Live Performance & Leads</h2>
 
       <div style={ui.statsGrid}>
         <div style={ui.statCard}>
@@ -1594,14 +1609,14 @@ function AnalyticsView({
         </div>
         <div style={ui.statCard}>
           <div style={{ fontSize: 28, marginBottom: 4 }}></div>
-          <div style={{ ...ui.statBigNum, color: '#f59e0b' }}>
+          <div style={{ ...ui.statBigNum, color: '#956213' }}>
             {threads.filter((t) => t.tags.includes('hot_lead') || t.tags.includes('order_inquiry')).length}
           </div>
           <div style={ui.statSub}>High Intent / Ready to Buy</div>
         </div>
         <div style={ui.statCard}>
           <div style={{ fontSize: 28, marginBottom: 4 }}></div>
-          <div style={{ ...ui.statBigNum, color: '#10b981' }}>
+          <div style={{ ...ui.statBigNum, color: '#0d7357' }}>
             {threads.filter((t) => t.customerProfile?.vip || t.tags.includes('luxury_buyer')).length}
           </div>
           <div style={ui.statSub}>Luxury / VIP Clients</div>
@@ -1622,358 +1637,6 @@ function AnalyticsView({
 // ── WHATSAPP DEVICE LINK VIEW ───────────────────────────────────────────
 // ════════════════════════════════════════════════════════════════════════
 
-function ConnectView({
-  tenantId,
-  waStatus,
-  onAction,
-  onRefresh,
-}: {
-  tenantId?: string;
-  waStatus: any;
-  onAction: (act: string, body?: any) => Promise<void>;
-  onRefresh: () => void;
-}) {
-  const [connecting, setConnecting] = useState(false);
-
-  const isConnected = waStatus?.state === 'connected';
-  const hasQR = waStatus?.state === 'qr' && waStatus?.qrDataUrl;
-
-  const handleConnect = async () => {
-    setConnecting(true);
-    try {
-      await fetch('/api/whatsapp/connect', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'connect', tenantId }),
-      });
-      onRefresh();
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setConnecting(false);
-    }
-  };
-
-  return (
-    <div style={{ padding: '32px 24px', maxWidth: 680, margin: '0 auto' }}>
-      {/* Status Banner */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 14,
-          marginBottom: 24,
-          padding: '16px 22px',
-          borderRadius: 14,
-          background: isConnected
-            ? 'linear-gradient(135deg, rgba(16,185,129,0.12) 0%, rgba(5,150,105,0.08) 100%)'
-            : 'rgba(10, 18, 38, 0.7)',
-          border: isConnected
-            ? '1px solid rgba(16,185,129,0.3)'
-            : '1px solid rgba(255,255,255,0.07)',
-        }}
-      >
-        <div
-          style={{
-            width: 46,
-            height: 46,
-            borderRadius: 13,
-            background: isConnected
-              ? 'linear-gradient(135deg, #059669 0%, #10b981 100%)'
-              : 'rgba(24,35,52,0.08)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: 24,
-            flexShrink: 0,
-            boxShadow: isConnected ? '0 4px 16px rgba(16,185,129,0.3)' : 'none',
-          }}
-        >
-          
-        </div>
-        <div style={{ flex: 1 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 3 }}>
-            <span style={{ fontSize: 17, fontWeight: 800, color: '#182334' }}>WhatsApp Linked Device</span>
-            <span
-              style={{
-                padding: '2px 8px',
-                borderRadius: 20,
-                fontSize: 10,
-                fontWeight: 700,
-                textTransform: 'uppercase',
-                letterSpacing: 0.5,
-                background: isConnected ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.18)',
-                color: isConnected ? '#087f6b' : '#f87171',
-                border: isConnected ? '1px solid rgba(16,185,129,0.4)' : '1px solid rgba(239,68,68,0.35)',
-              }}
-            >
-              {isConnected ? ' LIVE' : hasQR ? ' AWAITING SCAN' : ' OFFLINE'}
-            </span>
-          </div>
-          <span style={{ fontSize: 13, color: isConnected ? '#10b981' : '#64748b' }}>
-            {isConnected
-              ? `✓ Authenticated as +${waStatus.connectedPhone} — AI concierge is active`
-              : 'Link your WhatsApp number to start receiving and responding to customer messages'}
-          </span>
-        </div>
-        <button
-          onClick={onRefresh}
-          style={{
-            background: 'rgba(24,35,52,0.08)',
-            border: '1px solid rgba(24,35,52,0.12)',
-            color: '#596579',
-            padding: '7px 12px',
-            borderRadius: 8,
-            fontSize: 12,
-            fontWeight: 600,
-            cursor: 'pointer',
-            flexShrink: 0,
-          }}
-          title="Refresh connection status"
-        ><RefreshCw size={18} aria-hidden="true" /></button>
-      </div>
-
-      {/* Main Content Card */}
-      <div style={ui.connectCard}>
-        {isConnected ? (
-          <div className="fade-in-entry">
-            <div style={ui.linkedBox}>
-              <div style={{ fontSize: 16, fontWeight: 700, color: '#10b981', marginBottom: 10 }}>
-                 Live & Listening to Customer Chats
-              </div>
-              <p style={{ color: '#596579', fontSize: 13, margin: '0 0 16px', lineHeight: 1.6 }}>
-                Device authenticated as <strong style={{ color: '#182334' }}>+{waStatus.connectedPhone}</strong>. Incoming customer
-                WhatsApp messages will trigger the AI concierge automatically. You can monitor live conversations in the{' '}
-                <strong style={{ color: '#10b981' }}>Live Inbox</strong> tab.
-              </p>
-
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
-                  gap: 10,
-                  marginBottom: 18,
-                }}
-              >
-                {[
-                  { label: 'AI Responses', value: 'Active', color: '#10b981', icon: '' },
-                  { label: 'Auto-Read Receipts', value: 'Enabled', color: '#2563eb', icon: '✓✓' },
-                  { label: 'Typing Simulation', value: '3s delay', color: '#f59e0b', icon: '' },
-                  { label: 'Concierge Mode', value: 'Luxury', color: '#6550c8', icon: '' },
-                ].map((stat) => (
-                  <div
-                    key={stat.label}
-                    style={{
-                      background: 'rgba(255,255,255,0.04)',
-                      border: '1px solid rgba(255,255,255,0.07)',
-                      borderRadius: 10,
-                      padding: '12px 14px',
-                    }}
-                  >
-                    <div style={{ fontSize: 16, marginBottom: 4 }}>{stat.icon}</div>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: stat.color }}>{stat.value}</div>
-                    <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>{stat.label}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div style={{ marginTop: 22, display: 'flex', gap: 10 }}>
-              <button
-                onClick={() => onAction('disconnect')}
-                style={{
-                  background: 'rgba(239,68,68,0.12)',
-                  border: '1px solid rgba(239,68,68,0.3)',
-                  color: '#f87171',
-                  padding: '9px 18px',
-                  borderRadius: 9,
-                  fontSize: 13,
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                }}
-              >
-                Disconnect Device
-              </button>
-            </div>
-          </div>
-        ) : hasQR ? (
-          <div className="fade-in-entry" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '8px 0 16px' }}>
-            <div style={{ marginBottom: 20, textAlign: 'center' }}>
-              <div style={{ fontSize: 15, fontWeight: 700, color: '#182334', marginBottom: 4 }}>Scan QR with WhatsApp</div>
-              <div style={{ fontSize: 12, color: '#64748b' }}>QR code refreshes every 20 seconds</div>
-            </div>
-
-            <div
-              className="qr-shine-border"
-              style={{
-                position: 'relative',
-                background: '#ffffff',
-                padding: 16,
-                borderRadius: 18,
-                marginBottom: 22,
-                boxShadow: '0 0 0 1px rgba(16,185,129,0.3), 0 20px 50px rgba(0,0,0,0.5)',
-              }}
-            >
-              <img src={waStatus.qrDataUrl} alt="WhatsApp QR Code" style={{ width: 240, height: 240, display: 'block' }} />
-            </div>
-
-            <div style={{ fontSize: 15, fontWeight: 700, color: '#10b981', marginBottom: 10 }}>
-               Scan with WhatsApp on your Phone
-            </div>
-
-            <div
-              style={{
-                background: 'var(--nina-surface)',
-                border: '1px solid rgba(255,255,255,0.07)',
-                borderRadius: 12,
-                padding: '14px 18px',
-                maxWidth: 420,
-                width: '100%',
-              }}
-            >
-              <div style={{ fontSize: 12, fontWeight: 700, color: '#596579', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                How to Link:
-              </div>
-              {[
-                'Open WhatsApp on your phone',
-                'Tap ⋮ Menu → Linked Devices',
-                'Tap "Link a Device"',
-                'Point your camera at the QR code above',
-              ].map((step, i) => (
-                <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 7 }}>
-                  <span
-                    style={{
-                      width: 20,
-                      height: 20,
-                      borderRadius: '50%',
-                      background: 'rgba(16,185,129,0.2)',
-                      border: '1px solid rgba(16,185,129,0.4)',
-                      color: '#10b981',
-                      fontSize: 10,
-                      fontWeight: 800,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      flexShrink: 0,
-                      marginTop: 1,
-                    }}
-                  >
-                    {i + 1}
-                  </span>
-                  <span style={{ fontSize: 12, color: '#475569', lineHeight: 1.5 }}>{step}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : (
-          <div className="fade-in-entry" style={{ textAlign: 'center', padding: '24px 0' }}>
-            <div
-              style={{
-                width: 72,
-                height: 72,
-                borderRadius: 20,
-                background: 'linear-gradient(135deg, rgba(16,185,129,0.15) 0%, rgba(59,130,246,0.12) 100%)',
-                border: '1px solid rgba(16,185,129,0.2)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: 34,
-                margin: '0 auto 20px',
-              }}
-            >
-              
-            </div>
-
-            <h3 style={{ margin: '0 0 8px', fontSize: 19, fontWeight: 800, color: '#182334' }}>
-              Link Your WhatsApp Business
-            </h3>
-            <p style={{ color: '#64748b', fontSize: 13, maxWidth: 400, margin: '0 auto 24px', lineHeight: 1.6 }}>
-              Connect your WhatsApp number without Meta Developer approval. Just scan once — works exactly like WhatsApp Web.
-            </p>
-
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-                gap: 10,
-                marginBottom: 28,
-                maxWidth: 540,
-                margin: '0 auto 28px',
-              }}
-            >
-              {[
-                { icon: '', title: 'Instant Setup', desc: 'Go live in under 60 seconds' },
-                { icon: '', title: 'Secure & Private', desc: 'No API keys or Meta approval' },
-                { icon: '', title: 'AI Auto-Reply', desc: 'Luxury concierge on 24/7' },
-                { icon: '', title: 'Live Dashboard', desc: 'Orders, chats & analytics' },
-              ].map((f) => (
-                <div
-                  key={f.title}
-                  style={{
-                    background: 'rgba(255,255,255,0.03)',
-                    border: '1px solid rgba(24,35,52,0.08)',
-                    borderRadius: 10,
-                    padding: '14px 12px',
-                    textAlign: 'center',
-                  }}
-                >
-                  <div style={{ fontSize: 20, marginBottom: 6 }}>{f.icon}</div>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: '#182334', marginBottom: 3 }}>{f.title}</div>
-                  <div style={{ fontSize: 10.5, color: '#64748b' }}>{f.desc}</div>
-                </div>
-              ))}
-            </div>
-
-            <button
-              onClick={handleConnect}
-              disabled={connecting}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 10,
-                background: connecting
-                  ? 'rgba(24,35,52,0.08)'
-                  : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                border: 'none',
-                color: connecting ? '#64748b' : '#fff',
-                padding: '13px 32px',
-                borderRadius: 12,
-                fontSize: 15,
-                fontWeight: 700,
-                cursor: connecting ? 'not-allowed' : 'pointer',
-                boxShadow: connecting ? 'none' : '0 6px 20px rgba(16,185,129,0.35)',
-                transition: 'all 0.18s ease',
-              }}
-            >
-              {connecting ? (
-                <>
-                  <span
-                    style={{
-                      width: 16,
-                      height: 16,
-                      borderRadius: '50%',
-                      border: '2px solid rgba(255,255,255,0.2)',
-                      borderTopColor: '#fff',
-                      animation: 'spin 0.8s linear infinite',
-                      display: 'inline-block',
-                    }}
-                  />
-                  Generating QR Code...
-                </>
-              ) : (
-                <> Link WhatsApp Device</>
-              )}
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-
-
-// ════════════════════════════════════════════════════════════════════════
 // ── ONBOARDING / BUSINESS SWITCHER MODAL ────────────────────────────────
 // ════════════════════════════════════════════════════════════════════════
 
@@ -2152,15 +1815,15 @@ function OrdersAndMapView({
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24, flexWrap: 'wrap', gap: 14 }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <h2 style={{ margin: 0, fontSize: 22, color: '#182334', fontWeight: 800 }}>
+            <h2 style={{ margin: 0, fontSize: 22, color: '#182334', fontWeight: 700 }}>
                Confirmed Orders & Live Delivery Radar
             </h2>
-            <span style={{ background: 'rgba(16, 185, 129, 0.2)', color: '#087f6b', fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 12 }}>
+            <span style={{ background: 'rgba(16, 185, 129, 0.2)', color: '#087f6b', fontSize: 12, fontWeight: 700, padding: '3px 10px', borderRadius: 12 }}>
               GPS Geocoded & Mapped
             </span>
           </div>
           <p style={{ color: '#596579', fontSize: 13, marginTop: 4 }}>
-            Central hub to track all client orders, verified street addresses, 6-digit PIN verification, and rider delivery routes.
+            Track orders, review customer addresses, and confirm delivery map positions before dispatch.
           </p>
         </div>
 
@@ -2172,30 +1835,30 @@ function OrdersAndMapView({
       {/* KPI Cards Row */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 14, marginBottom: 24 }}>
         <div style={ui.statCard}>
-          <div style={{ fontSize: 11, color: '#596579', fontWeight: 700, textTransform: 'uppercase' }}>Total Orders</div>
-          <div style={{ fontSize: 24, fontWeight: 800, color: '#182334', marginTop: 4 }}>{orders.length}</div>
-          <div style={{ fontSize: 12, color: '#10b981', marginTop: 2 }}>₹{totalRevenue.toLocaleString('en-IN')} Total Value</div>
+          <div style={{ fontSize: 12, color: '#596579', fontWeight: 700, textTransform: 'uppercase' }}>Total Orders</div>
+          <div style={{ fontSize: 24, fontWeight: 700, color: '#182334', marginTop: 4 }}>{orders.length}</div>
+          <div style={{ fontSize: 12, color: '#0d7357', marginTop: 2 }}>₹{totalRevenue.toLocaleString('en-IN')} Total Value</div>
         </div>
 
         <div style={ui.statCard}>
-          <div style={{ fontSize: 11, color: '#596579', fontWeight: 700, textTransform: 'uppercase' }}>Ready for Dispatch</div>
-          <div style={{ fontSize: 24, fontWeight: 800, color: '#087f6b', marginTop: 4 }}>{readyCount}</div>
+          <div style={{ fontSize: 12, color: '#596579', fontWeight: 700, textTransform: 'uppercase' }}>Ready for Dispatch</div>
+          <div style={{ fontSize: 24, fontWeight: 700, color: '#087f6b', marginTop: 4 }}>{readyCount}</div>
           <div style={{ fontSize: 12, color: '#596579', marginTop: 2 }}>Delivery details</div>
         </div>
 
         <div style={ui.statCard}>
-          <div style={{ fontSize: 11, color: '#596579', fontWeight: 700, textTransform: 'uppercase' }}>In Transit / Dispatched</div>
-          <div style={{ fontSize: 24, fontWeight: 800, color: '#2563eb', marginTop: 4 }}>{dispatchedCount}</div>
+          <div style={{ fontSize: 12, color: '#596579', fontWeight: 700, textTransform: 'uppercase' }}>In Transit / Dispatched</div>
+          <div style={{ fontSize: 24, fontWeight: 700, color: '#2563eb', marginTop: 4 }}>{dispatchedCount}</div>
           <div style={{ fontSize: 12, color: '#596579', marginTop: 2 }}>With Courier Partner</div>
         </div>
 
         <div style={ui.statCard}>
-          <div style={{ fontSize: 11, color: '#596579', fontWeight: 700, textTransform: 'uppercase' }}>Missing PIN Code</div>
-          <div style={{ fontSize: 24, fontWeight: 800, color: missingPinCount > 0 ? '#f59e0b' : '#64748b', marginTop: 4 }}>
+          <div style={{ fontSize: 12, color: '#596579', fontWeight: 700, textTransform: 'uppercase' }}>Missing PIN Code</div>
+          <div style={{ fontSize: 24, fontWeight: 700, color: missingPinCount > 0 ? '#f59e0b' : '#64748b', marginTop: 4 }}>
             {missingPinCount}
           </div>
           <div style={{ fontSize: 12, color: missingPinCount > 0 ? '#96610a' : '#64748b', marginTop: 2 }}>
-            {missingPinCount > 0 ? 'Action required from client' : 'All addresses valid'}
+            {missingPinCount > 0 ? 'Action required from client' : 'Postal codes supplied'}
           </div>
         </div>
       </div>
@@ -2215,7 +1878,7 @@ function OrdersAndMapView({
       >
         {/* Left: Embedded Google Map */}
         <div style={{ position: 'relative', borderRadius: 10, overflow: 'hidden', minHeight: 280, border: '1px solid rgba(24,35,52,0.12)' }}>
-          <iframe
+          <iframe title="Delivery address map"
             width="100%"
             height="100%"
             frameBorder="0"
@@ -2235,7 +1898,7 @@ function OrdersAndMapView({
               backdropFilter: 'blur(8px)',
               padding: '6px 12px',
               borderRadius: 6,
-              fontSize: 11,
+              fontSize: 12,
               fontWeight: 700,
               color: '#087f6b',
               border: '1px solid rgba(16, 185, 129, 0.3)',
@@ -2252,10 +1915,10 @@ function OrdersAndMapView({
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <div>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: '#10b981', textTransform: 'uppercase' }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: '#0d7357', textTransform: 'uppercase' }}>
                       {selectedOrder.id} · {selectedOrder.orderStatus.replace(/_/g, ' ')}
                     </span>
-                    <h3 style={{ margin: '4px 0 0', fontSize: 18, color: '#182334', fontWeight: 800 }}>
+                    <h3 style={{ margin: '4px 0 0', fontSize: 18, color: '#182334', fontWeight: 700 }}>
                       {selectedOrder.customerName}
                     </h3>
                     <div style={{ color: '#596579', fontSize: 12 }}>{selectedOrder.customerPhone}</div>
@@ -2265,7 +1928,7 @@ function OrdersAndMapView({
                     style={{
                       background: selectedOrder.deliveryLocation?.verified ? 'rgba(16, 185, 129, 0.2)' : 'rgba(245, 158, 11, 0.2)',
                       color: selectedOrder.deliveryLocation?.verified ? '#087f6b' : '#96610a',
-                      fontSize: 11,
+                      fontSize: 12,
                       fontWeight: 700,
                       padding: '4px 10px',
                       borderRadius: 6,
@@ -2276,10 +1939,10 @@ function OrdersAndMapView({
                 </div>
 
                 {/* Product & Payment */}
-                <div style={{ background: 'rgba(30, 41, 59, 0.4)', borderRadius: 8, padding: 12, margin: '14px 0' }}>
+                <div style={{ background: 'var(--nina-surface)', borderRadius: 8, padding: 12, margin: '14px 0' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ fontWeight: 700, color: '#182334', fontSize: 14 }}>{selectedOrder.productName}</span>
-                    <span style={{ fontWeight: 800, color: '#087f6b', fontSize: 16 }}>
+                    <span style={{ fontWeight: 700, color: '#087f6b', fontSize: 16 }}>
                       ₹{selectedOrder.amount.toLocaleString('en-IN')}
                     </span>
                   </div>
@@ -2287,7 +1950,7 @@ function OrdersAndMapView({
                   {/* If bulk order with itemized list */}
                   {selectedOrder.items && selectedOrder.items.length > 0 && (
                     <div style={{ marginTop: 8, borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 8 }}>
-                      <div style={{ fontSize: 11, color: '#596579', fontWeight: 700, marginBottom: 4, textTransform: 'uppercase' }}>
+                      <div style={{ fontSize: 12, color: '#596579', fontWeight: 700, marginBottom: 4, textTransform: 'uppercase' }}>
                          Itemized Timepieces ({selectedOrder.quantity || selectedOrder.items.length} units):
                       </div>
                       {selectedOrder.items.map((it, idx) => (
@@ -2297,7 +1960,7 @@ function OrdersAndMapView({
                         </div>
                       ))}
                       {selectedOrder.subtotal && selectedOrder.discountAmount ? (
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#96610a', marginTop: 4, borderTop: '1px dashed rgba(24,35,52,0.12)', paddingTop: 4 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#96610a', marginTop: 4, borderTop: '1px dashed rgba(24,35,52,0.12)', paddingTop: 4 }}>
                           <span>Subtotal: ₹{selectedOrder.subtotal.toLocaleString('en-IN')}</span>
                           <span>VIP {selectedOrder.discountCode || 'TITAN10'}: −₹{selectedOrder.discountAmount.toLocaleString('en-IN')}</span>
                         </div>
@@ -2305,7 +1968,7 @@ function OrdersAndMapView({
                     </div>
                   )}
 
-                  <div style={{ display: 'flex', gap: 10, marginTop: 8, fontSize: 11, color: '#596579', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', gap: 10, marginTop: 8, fontSize: 12, color: '#596579', flexWrap: 'wrap' }}>
                     <span>Payment: <b style={{ color: '#182334' }}>{selectedOrder.paymentMode}</b> ({selectedOrder.paymentStatus})</span>
                     {selectedOrder.discountCode && <span>Promo: <b style={{ color: '#96610a' }}>{selectedOrder.discountCode}</b></span>}
                     {selectedOrder.courierPartner && <span>Courier: <b style={{ color: '#2563eb' }}>{selectedOrder.courierPartner}</b></span>}
@@ -2314,7 +1977,7 @@ function OrdersAndMapView({
 
                 {/* Delivery Address & GPS Coordinates */}
                 <div style={{ fontSize: 13, color: '#475569', lineHeight: 1.5 }}>
-                  <div style={{ fontSize: 11, color: '#64748b', fontWeight: 700, textTransform: 'uppercase', marginBottom: 2 }}>
+                  <div style={{ fontSize: 12, color: '#64748b', fontWeight: 700, textTransform: 'uppercase', marginBottom: 2 }}>
                     Delivery Address & GPS Coordinates
                   </div>
                   <div style={{ color: '#182334', fontWeight: 500 }}>
@@ -2326,7 +1989,7 @@ function OrdersAndMapView({
                     </div>
                   )}
                   {selectedOrder.deliveryLocation?.lat && (
-                    <div style={{ color: '#596579', fontSize: 11, marginTop: 2 }}>
+                    <div style={{ color: '#596579', fontSize: 12, marginTop: 2 }}>
                        GPS: {selectedOrder.deliveryLocation.lat.toFixed(4)}° N, {selectedOrder.deliveryLocation.lng?.toFixed(4)}° E
                     </div>
                   )}
@@ -2494,21 +2157,21 @@ function OrdersAndMapView({
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 10 }}>
                   <div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ fontWeight: 800, color: '#087f6b', fontSize: 14 }}>{ord.id}</span>
-                      <span style={{ fontSize: 11, color: '#64748b' }}>
+                      <span style={{ fontWeight: 700, color: '#087f6b', fontSize: 14 }}>{ord.id}</span>
+                      <span style={{ fontSize: 12, color: '#64748b' }}>
                         {new Date(ord.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                       </span>
                       <span
                         style={{
                           background: ord.deliveryLocation?.verified ? '#065f46' : '#78350f',
                           color: ord.deliveryLocation?.verified ? '#a7f3d0' : '#fde68a',
-                          fontSize: 10,
+                          fontSize: 12,
                           fontWeight: 700,
                           padding: '1px 6px',
                           borderRadius: 4,
                         }}
                       >
-                        {ord.deliveryLocation?.verified ? `PIN: ${ord.deliveryLocation.pincode}` : 'MISSING PIN'}
+                        {ord.deliveryLocation?.verified ? `PIN: ${ord.deliveryLocation.pincode}` : 'REVIEW LOCATION'}
                       </span>
                     </div>
 
@@ -2519,8 +2182,8 @@ function OrdersAndMapView({
 
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontWeight: 800, color: '#087f6b', fontSize: 16 }}>₹{ord.amount.toLocaleString('en-IN')}</div>
-                      <div style={{ fontSize: 11, color: '#596579' }}>{ord.paymentMode} ({ord.paymentStatus})</div>
+                      <div style={{ fontWeight: 700, color: '#087f6b', fontSize: 16 }}>₹{ord.amount.toLocaleString('en-IN')}</div>
+                      <div style={{ fontSize: 12, color: '#596579' }}>{ord.paymentMode} ({ord.paymentStatus})</div>
                     </div>
 
                     <select
@@ -2555,11 +2218,11 @@ function OrdersAndMapView({
                 </div>
 
                 {/* Watch & Delivery Row */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(30, 41, 59, 0.3)', padding: '8px 12px', borderRadius: 8, flexWrap: 'wrap', gap: 8 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--nina-surface)', padding: '8px 12px', borderRadius: 8, flexWrap: 'wrap', gap: 8 }}>
                   <div style={{ fontSize: 13, color: '#334155' }}>
                      <b style={{ color: '#182334' }}>{ord.productName}</b>
                     {ord.quantity && ord.quantity > 1 && (
-                      <span style={{ marginLeft: 8, background: '#d97706', color: '#000', fontSize: 10, fontWeight: 800, padding: '2px 6px', borderRadius: 4 }}>
+                      <span style={{ marginLeft: 8, background: '#d97706', color: '#000', fontSize: 12, fontWeight: 700, padding: '2px 6px', borderRadius: 4 }}>
                         {ord.quantity} WATCHES
                       </span>
                     )}
@@ -2578,7 +2241,7 @@ function OrdersAndMapView({
                         e.stopPropagation();
                         setTrackingEdits({ ...trackingEdits, [ord.id]: { ...currentEdit, courier: e.target.value } });
                       }}
-                      style={{ ...ui.inputField, width: 130, padding: '5px 8px', fontSize: 11 }}
+                      style={{ ...ui.inputField, width: 130, padding: '5px 8px', fontSize: 12 }}
                     >
                       <option value="BlueDart">BlueDart Express</option>
                       <option value="Delhivery">Delhivery</option>
@@ -2596,7 +2259,7 @@ function OrdersAndMapView({
                         e.stopPropagation();
                         setTrackingEdits({ ...trackingEdits, [ord.id]: { ...currentEdit, tracking: e.target.value } });
                       }}
-                      style={{ ...ui.inputField, width: 160, padding: '5px 8px', fontSize: 11 }}
+                      style={{ ...ui.inputField, width: 160, padding: '5px 8px', fontSize: 12 }}
                     />
 
                     <button
@@ -2609,7 +2272,7 @@ function OrdersAndMapView({
                           trackingNumber: currentEdit.tracking,
                         });
                       }}
-                      style={{ ...ui.smallActionBtn, background: '#2563eb', padding: '5px 10px', fontSize: 11 }}
+                      style={{ ...ui.smallActionBtn, background: '#2563eb', padding: '5px 10px', fontSize: 12 }}
                     >
                       Save AWB
                     </button>
@@ -2644,9 +2307,7 @@ function OrdersAndMapView({
                         }
                       }}
                       style={{ ...ui.smallActionBtn, background: 'rgba(239, 68, 68, 0.2)', color: '#ef4444' }}
-                    >
-                      
-                    </button>
+                    aria-label="Delete order"><Trash2 size={16} aria-hidden="true" /></button>
                   </div>
                 </div>
               </div>
@@ -2883,7 +2544,7 @@ function NinaAdminView({
           </div>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <h2 style={{ margin: 0, fontSize: 20, color: '#182334', fontWeight: 800 }}>
+              <h2 style={{ margin: 0, fontSize: 20, color: '#182334', fontWeight: 700 }}>
                 Nina Kurain · Master WhatsApp Administration
               </h2>
               <span
@@ -2893,7 +2554,7 @@ function NinaAdminView({
                   border: '1px solid rgba(16, 185, 129, 0.4)',
                   padding: '2px 8px',
                   borderRadius: 12,
-                  fontSize: 11,
+                  fontSize: 12,
                   fontWeight: 700,
                 }}
               >
@@ -2936,10 +2597,10 @@ function NinaAdminView({
             <span>Client Businesses</span>
             <span style={{ fontSize: 18 }}></span>
           </div>
-          <div style={{ fontSize: 28, fontWeight: 800, color: '#182334' }}>
+          <div style={{ fontSize: 28, fontWeight: 700, color: '#182334' }}>
             {registeredAccounts.length}
           </div>
-          <div style={{ fontSize: 12, color: '#10b981', marginTop: 4, fontWeight: 600 }}>
+          <div style={{ fontSize: 12, color: '#0d7357', marginTop: 4, fontWeight: 600 }}>
             Active & ready for clients
           </div>
         </div>
@@ -2949,7 +2610,7 @@ function NinaAdminView({
             <span>WhatsApp Devices</span>
             <span style={{ fontSize: 18 }}></span>
           </div>
-          <div style={{ fontSize: 28, fontWeight: 800, color: '#182334' }}>
+          <div style={{ fontSize: 28, fontWeight: 700, color: '#182334' }}>
             {registeredAccounts.filter((a) => a.deviceStatus === 'connected').length || (workspace.connections?.whatsappVerified ? 1 : 0)}
           </div>
           <div style={{ fontSize: 12, color: '#2563eb', marginTop: 4, fontWeight: 600 }}>
@@ -2962,10 +2623,10 @@ function NinaAdminView({
             <span>Total System Chats</span>
             <span style={{ fontSize: 18 }}></span>
           </div>
-          <div style={{ fontSize: 28, fontWeight: 800, color: '#182334' }}>
+          <div style={{ fontSize: 28, fontWeight: 700, color: '#182334' }}>
             {workspace.threads?.length || 0}
           </div>
-          <div style={{ fontSize: 12, color: '#a78bfa', marginTop: 4, fontWeight: 600 }}>
+          <div style={{ fontSize: 12, color: '#6550a8', marginTop: 4, fontWeight: 600 }}>
             Across all client businesses
           </div>
         </div>
@@ -2975,7 +2636,7 @@ function NinaAdminView({
             <span>Total System Orders</span>
             <span style={{ fontSize: 18 }}></span>
           </div>
-          <div style={{ fontSize: 28, fontWeight: 800, color: '#182334' }}>
+          <div style={{ fontSize: 28, fontWeight: 700, color: '#182334' }}>
             {workspace.orders?.length || 0}
           </div>
           <div style={{ fontSize: 12, color: '#087f6b', marginTop: 4, fontWeight: 600 }}>
@@ -3012,7 +2673,7 @@ function NinaAdminView({
                     border: `1px solid ${turso.connected ? 'rgba(16, 185, 129, 0.4)' : 'rgba(239, 68, 68, 0.4)'}`,
                     padding: '2px 8px',
                     borderRadius: 12,
-                    fontSize: 10,
+                    fontSize: 12,
                     fontWeight: 700,
                   }}
                 >
@@ -3054,7 +2715,7 @@ function NinaAdminView({
         </div>
 
         {/* Storage Bar */}
-        <div style={{ background: 'rgba(30, 41, 59, 0.5)', padding: '16px', borderRadius: 12, border: '1px solid rgba(255, 255, 255, 0.06)' }}>
+        <div style={{ background: 'var(--nina-surface)', padding: '16px', borderRadius: 12, border: '1px solid rgba(255, 255, 255, 0.06)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, fontSize: 13 }}>
             <span style={{ color: '#475569' }}>
               Turso Storage Footprint: <strong style={{ color: '#38bdf8' }}>{turso.storageEstimateKb} KB</strong> (~{turso.storageEstimateMb} MB)
@@ -3073,7 +2734,7 @@ function NinaAdminView({
               }}
             />
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 11, color: '#64748b' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 12, color: '#64748b' }}>
             <span>Healthy Storage Utilization (&lt; 0.1%)</span>
             <span>Zero latency cloud replicas</span>
           </div>
@@ -3086,39 +2747,39 @@ function NinaAdminView({
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
             <div style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.07)', borderRadius: 8, padding: '10px 14px' }}>
-              <div style={{ fontSize: 11, color: '#596579' }}>wa_threads</div>
+              <div style={{ fontSize: 12, color: '#596579' }}>wa_threads</div>
               <div style={{ fontSize: 18, fontWeight: 700, color: '#38bdf8', marginTop: 2 }}>{turso.tableCounts?.threads || 0}</div>
-              <div style={{ fontSize: 10, color: '#64748b' }}>Conversations & messages</div>
+              <div style={{ fontSize: 12, color: '#64748b' }}>Conversations & messages</div>
             </div>
 
             <div style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.07)', borderRadius: 8, padding: '10px 14px' }}>
-              <div style={{ fontSize: 11, color: '#596579' }}>wa_orders</div>
+              <div style={{ fontSize: 12, color: '#596579' }}>wa_orders</div>
               <div style={{ fontSize: 18, fontWeight: 700, color: '#087f6b', marginTop: 2 }}>{turso.tableCounts?.orders || 0}</div>
-              <div style={{ fontSize: 10, color: '#64748b' }}>Confirmed bookings & pins</div>
+              <div style={{ fontSize: 12, color: '#64748b' }}>Confirmed bookings & pins</div>
             </div>
 
             <div style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.07)', borderRadius: 8, padding: '10px 14px' }}>
-              <div style={{ fontSize: 11, color: '#596579' }}>wa_customers</div>
+              <div style={{ fontSize: 12, color: '#596579' }}>wa_customers</div>
               <div style={{ fontSize: 18, fontWeight: 700, color: '#96610a', marginTop: 2 }}>{turso.tableCounts?.customers || 0}</div>
-              <div style={{ fontSize: 10, color: '#64748b' }}>Profiles & phone numbers</div>
+              <div style={{ fontSize: 12, color: '#64748b' }}>Profiles & phone numbers</div>
             </div>
 
             <div style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.07)', borderRadius: 8, padding: '10px 14px' }}>
-              <div style={{ fontSize: 11, color: '#596579' }}>wa_jobs</div>
-              <div style={{ fontSize: 18, fontWeight: 700, color: '#a78bfa', marginTop: 2 }}>{turso.tableCounts?.jobs || 0}</div>
-              <div style={{ fontSize: 10, color: '#64748b' }}>Async queue jobs</div>
+              <div style={{ fontSize: 12, color: '#596579' }}>wa_jobs</div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: '#6550a8', marginTop: 2 }}>{turso.tableCounts?.jobs || 0}</div>
+              <div style={{ fontSize: 12, color: '#64748b' }}>Async queue jobs</div>
             </div>
 
             <div style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.07)', borderRadius: 8, padding: '10px 14px' }}>
-              <div style={{ fontSize: 11, color: '#596579' }}>wa_activity</div>
+              <div style={{ fontSize: 12, color: '#596579' }}>wa_activity</div>
               <div style={{ fontSize: 18, fontWeight: 700, color: '#f472b6', marginTop: 2 }}>{turso.tableCounts?.activity || 0}</div>
-              <div style={{ fontSize: 10, color: '#64748b' }}>Audit log entries</div>
+              <div style={{ fontSize: 12, color: '#64748b' }}>Audit log entries</div>
             </div>
 
             <div style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.07)', borderRadius: 8, padding: '10px 14px' }}>
-              <div style={{ fontSize: 11, color: '#596579' }}>wa_state</div>
+              <div style={{ fontSize: 12, color: '#596579' }}>wa_state</div>
               <div style={{ fontSize: 18, fontWeight: 700, color: '#c084fc', marginTop: 2 }}>{turso.tableCounts?.state || 0}</div>
-              <div style={{ fontSize: 10, color: '#64748b' }}>Tenant stores & configs</div>
+              <div style={{ fontSize: 12, color: '#64748b' }}>Tenant stores & configs</div>
             </div>
           </div>
         </div>
@@ -3153,7 +2814,7 @@ function NinaAdminView({
               value={adminSearch}
               onChange={(e) => setAdminSearch(e.target.value)}
               style={{
-                background: 'rgba(30, 41, 59, 0.6)',
+                background: 'var(--nina-surface)',
                 border: '1px solid rgba(255, 255, 255, 0.1)',
                 color: '#182334',
                 padding: '8px 14px',
@@ -3170,7 +2831,7 @@ function NinaAdminView({
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 13 }}>
             <thead>
-              <tr style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.1)', color: '#596579', fontSize: 11, textTransform: 'uppercase' }}>
+              <tr style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.1)', color: '#596579', fontSize: 12, textTransform: 'uppercase' }}>
                 <th style={{ padding: '10px 14px' }}>Business</th>
                 <th style={{ padding: '10px 14px' }}>Owner & Phone</th>
                 <th style={{ padding: '10px 14px' }}>Category</th>
@@ -3206,19 +2867,19 @@ function NinaAdminView({
                           <div style={{ fontWeight: 700, color: '#182334', display: 'flex', alignItems: 'center', gap: 6 }}>
                             <span>{acc.name}</span>
                             {isActive && (
-                              <span style={{ fontSize: 9, background: '#7354da', color: '#fff', padding: '1px 6px', borderRadius: 4, fontWeight: 700 }}>
+                              <span style={{ fontSize: 12, background: '#7354da', color: '#fff', padding: '1px 6px', borderRadius: 4, fontWeight: 700 }}>
                                 ACTIVE
                               </span>
                             )}
                           </div>
-                          <div style={{ fontSize: 11, color: '#596579', marginTop: 2 }}>{acc.tagline}</div>
+                          <div style={{ fontSize: 12, color: '#596579', marginTop: 2 }}>{acc.tagline}</div>
                         </div>
                       </div>
                     </td>
 
                     <td style={{ padding: '14px' }}>
                       <div style={{ color: '#475569' }}>{acc.ownerName}</div>
-                      <div style={{ fontSize: 11, color: '#596579' }}>{acc.phone}</div>
+                      <div style={{ fontSize: 12, color: '#596579' }}>{acc.phone}</div>
                     </td>
 
                     <td style={{ padding: '14px' }}>
@@ -3228,7 +2889,7 @@ function NinaAdminView({
                           color: '#475569',
                           padding: '3px 8px',
                           borderRadius: 6,
-                          fontSize: 11,
+                          fontSize: 12,
                           fontWeight: 600,
                         }}
                       >
@@ -3242,7 +2903,7 @@ function NinaAdminView({
                           display: 'inline-flex',
                           alignItems: 'center',
                           gap: 6,
-                          fontSize: 11,
+                          fontSize: 12,
                           fontWeight: 700,
                           color: acc.deviceStatus === 'connected' ? '#087f6b' : '#596579',
                         }}
@@ -3271,7 +2932,7 @@ function NinaAdminView({
                             gap: 4,
                             padding: '2px 8px',
                             borderRadius: 6,
-                            fontSize: 10,
+                            fontSize: 12,
                             fontWeight: 700,
                             background: acc.status === 'suspended' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)',
                             color: acc.status === 'suspended' ? '#f87171' : '#087f6b',
@@ -3293,7 +2954,7 @@ function NinaAdminView({
                             border: `1px solid ${isActive ? '#7354da' : 'rgba(255,255,255,0.12)'}`,
                             padding: '5px 12px',
                             borderRadius: 6,
-                            fontSize: 11,
+                            fontSize: 12,
                             fontWeight: 700,
                             cursor: 'pointer',
                           }}
@@ -3313,7 +2974,7 @@ function NinaAdminView({
                               border: `1px solid ${acc.status === 'suspended' ? 'rgba(16, 185, 129, 0.35)' : 'rgba(239, 68, 68, 0.35)'}`,
                               padding: '5px 10px',
                               borderRadius: 6,
-                              fontSize: 11,
+                              fontSize: 12,
                               fontWeight: 700,
                               cursor: 'pointer',
                             }}
@@ -3336,13 +2997,11 @@ function NinaAdminView({
                               border: '1px solid rgba(239, 68, 68, 0.3)',
                               padding: '5px 8px',
                               borderRadius: 6,
-                              fontSize: 11,
+                              fontSize: 12,
                               cursor: 'pointer',
                             }}
                             title="Remove Client"
-                          >
-                            
-                          </button>
+                          ><Trash2 size={16} aria-hidden="true" /></button>
                         )}
                       </div>
                     </td>
@@ -3491,7 +3150,7 @@ function AdminLoginModal({
         {tab === 'signin' ? (
           <form onSubmit={handleSignIn} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div>
-              <label style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', marginBottom: 6, display: 'block' }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: '#475569', textTransform: 'uppercase', marginBottom: 6, display: 'block' }}>
                 Email Address
               </label>
               <input
@@ -3506,7 +3165,7 @@ function AdminLoginModal({
             </div>
 
             <div>
-              <label style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', marginBottom: 6, display: 'block' }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: '#475569', textTransform: 'uppercase', marginBottom: 6, display: 'block' }}>
                 Password
               </label>
               <input
@@ -3539,7 +3198,7 @@ function AdminLoginModal({
           <form onSubmit={handleRegister} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
               <div>
-                <label style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', marginBottom: 4, display: 'block' }}>
+                <label style={{ fontSize: 12, fontWeight: 700, color: '#475569', textTransform: 'uppercase', marginBottom: 4, display: 'block' }}>
                   Business Name
                 </label>
                 <input
@@ -3553,7 +3212,7 @@ function AdminLoginModal({
               </div>
 
               <div>
-                <label style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', marginBottom: 4, display: 'block' }}>
+                <label style={{ fontSize: 12, fontWeight: 700, color: '#475569', textTransform: 'uppercase', marginBottom: 4, display: 'block' }}>
                   Owner Name
                 </label>
                 <input
@@ -3569,7 +3228,7 @@ function AdminLoginModal({
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
               <div>
-                <label style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', marginBottom: 4, display: 'block' }}>
+                <label style={{ fontSize: 12, fontWeight: 700, color: '#475569', textTransform: 'uppercase', marginBottom: 4, display: 'block' }}>
                   Email (Login)
                 </label>
                 <input
@@ -3583,7 +3242,7 @@ function AdminLoginModal({
               </div>
 
               <div>
-                <label style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', marginBottom: 4, display: 'block' }}>
+                <label style={{ fontSize: 12, fontWeight: 700, color: '#475569', textTransform: 'uppercase', marginBottom: 4, display: 'block' }}>
                   Password (min 8 chars)
                 </label>
                 <input
@@ -3600,7 +3259,7 @@ function AdminLoginModal({
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
               <div>
-                <label style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', marginBottom: 4, display: 'block' }}>
+                <label style={{ fontSize: 12, fontWeight: 700, color: '#475569', textTransform: 'uppercase', marginBottom: 4, display: 'block' }}>
                   WhatsApp Phone
                 </label>
                 <input
@@ -3613,7 +3272,7 @@ function AdminLoginModal({
               </div>
 
               <div>
-                <label style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', marginBottom: 4, display: 'block' }}>
+                <label style={{ fontSize: 12, fontWeight: 700, color: '#475569', textTransform: 'uppercase', marginBottom: 4, display: 'block' }}>
                   Category
                 </label>
                 <input
@@ -3627,7 +3286,7 @@ function AdminLoginModal({
             </div>
 
             <div>
-              <label style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', marginBottom: 4, display: 'block' }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: '#475569', textTransform: 'uppercase', marginBottom: 4, display: 'block' }}>
                 Tagline / Brand Bio
               </label>
               <input
@@ -3640,7 +3299,7 @@ function AdminLoginModal({
             </div>
 
             <div>
-              <label style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', marginBottom: 4, display: 'block' }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: '#475569', textTransform: 'uppercase', marginBottom: 4, display: 'block' }}>
                 Brand Accent Color
               </label>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -3748,7 +3407,7 @@ function OnboardBusinessModal({
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', marginBottom: 4, display: 'block' }}>
+            <label style={{ fontSize: 12, fontWeight: 700, color: '#475569', textTransform: 'uppercase', marginBottom: 4, display: 'block' }}>
               Business Name *
             </label>
             <input
@@ -3763,7 +3422,7 @@ function OnboardBusinessModal({
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div>
-              <label style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', marginBottom: 4, display: 'block' }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: '#475569', textTransform: 'uppercase', marginBottom: 4, display: 'block' }}>
                 Client Owner Name
               </label>
               <input
@@ -3775,7 +3434,7 @@ function OnboardBusinessModal({
               />
             </div>
             <div>
-              <label style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', marginBottom: 4, display: 'block' }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: '#475569', textTransform: 'uppercase', marginBottom: 4, display: 'block' }}>
                 WhatsApp Phone Number
               </label>
               <input
@@ -3789,7 +3448,7 @@ function OnboardBusinessModal({
           </div>
 
           <div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', marginBottom: 4, display: 'block' }}>
+            <label style={{ fontSize: 12, fontWeight: 700, color: '#475569', textTransform: 'uppercase', marginBottom: 4, display: 'block' }}>
               Category
             </label>
             <select
@@ -3808,7 +3467,7 @@ function OnboardBusinessModal({
           </div>
 
           <div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', marginBottom: 4, display: 'block' }}>
+            <label style={{ fontSize: 12, fontWeight: 700, color: '#475569', textTransform: 'uppercase', marginBottom: 4, display: 'block' }}>
               Tagline / Mission
             </label>
             <input
@@ -3821,7 +3480,7 @@ function OnboardBusinessModal({
           </div>
 
           <div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', marginBottom: 6, display: 'block' }}>
+            <label style={{ fontSize: 12, fontWeight: 700, color: '#475569', textTransform: 'uppercase', marginBottom: 6, display: 'block' }}>
               Brand Theme Color
             </label>
             <div style={{ display: 'flex', gap: 10 }}>
@@ -3950,14 +3609,14 @@ const ui: Record<string, React.CSSProperties> = {
     flexShrink: 0,
   },
   brandTitleRow: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
-  brandTitle: { fontSize: 16, fontWeight: 800, color: '#182334', letterSpacing: -0.3 },
-  brandTagline: { fontSize: 10, color: '#64748b', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 600 },
+  brandTitle: { fontSize: 16, fontWeight: 700, color: '#182334', letterSpacing: -0.3 },
+  brandTagline: { fontSize: 12, color: '#64748b', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 600 },
   changeBusinessBtn: {
     padding: '3px 9px',
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: 600,
     borderRadius: 6,
-    background: 'rgba(24,35,52,0.08)',
+    background: 'var(--nina-surface)',
     border: '1px solid rgba(24,35,52,0.12)',
     color: '#596579',
     cursor: 'pointer',
@@ -3987,8 +3646,8 @@ const ui: Record<string, React.CSSProperties> = {
     cursor: 'pointer',
     transition: 'border-color 0.15s ease',
   },
-  kpiValue: { fontSize: 14, fontWeight: 800, color: '#182334' },
-  kpiLabel: { fontSize: 9, color: '#64748b', textTransform: 'uppercase', fontWeight: 700, letterSpacing: 0.5 },
+  kpiValue: { fontSize: 14, fontWeight: 700, color: '#182334' },
+  kpiLabel: { fontSize: 12, color: '#64748b', textTransform: 'uppercase', fontWeight: 700, letterSpacing: 0.5 },
 
   // ── Navigation ────────────────────────────────────────────────
   nav: {
@@ -4054,7 +3713,7 @@ const ui: Record<string, React.CSSProperties> = {
   },
   statusFilterBtn: {
     padding: '3px 8px',
-    fontSize: 9.5,
+    fontSize: 12,
     fontWeight: 700,
     borderRadius: 5,
     border: '1px solid rgba(255,255,255,0.07)',
@@ -4097,13 +3756,13 @@ const ui: Record<string, React.CSSProperties> = {
   sentimentBadge: {
     padding: '1px 6px',
     borderRadius: 5,
-    fontSize: 9,
+    fontSize: 12,
     fontWeight: 700,
     textTransform: 'uppercase',
     letterSpacing: 0.3,
   },
   threadPreviewText: {
-    fontSize: 11.5,
+    fontSize: 12,
     color: '#64748b',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
@@ -4115,7 +3774,7 @@ const ui: Record<string, React.CSSProperties> = {
   badgeTag: {
     padding: '2px 5px',
     borderRadius: 4,
-    fontSize: 9,
+    fontSize: 12,
     fontWeight: 700,
     textTransform: 'uppercase',
     color: '#fff',
@@ -4129,7 +3788,7 @@ const ui: Record<string, React.CSSProperties> = {
     minWidth: 0,
     display: 'flex',
     flexDirection: 'column',
-    background: 'linear-gradient(180deg, rgba(5,10,22,0.85) 0%, rgba(7,13,26,0.9) 100%)',
+    background: 'var(--nina-soft)',
     overflow: 'hidden',
   },
   noChatSelected: {
@@ -4146,7 +3805,7 @@ const ui: Record<string, React.CSSProperties> = {
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: '10px 20px',
-    background: 'rgba(10, 18, 36, 0.75)',
+    background: 'var(--nina-surface)',
     borderBottom: '1px solid rgba(24,35,52,0.06)',
     flexShrink: 0,
     gap: 10,
@@ -4157,7 +3816,7 @@ const ui: Record<string, React.CSSProperties> = {
     borderRadius: 7,
     border: 'none',
     color: '#fff',
-    fontSize: 11.5,
+    fontSize: 12,
     fontWeight: 600,
     cursor: 'pointer',
     transition: 'filter 0.12s ease, transform 0.12s ease',
@@ -4181,19 +3840,19 @@ const ui: Record<string, React.CSSProperties> = {
   },
   msgIncoming: {
     alignSelf: 'flex-start',
-    background: 'rgba(22, 32, 56, 0.92)',
+    background: 'var(--nina-surface)',
     border: '1px solid rgba(24,35,52,0.08)',
     borderBottomLeftRadius: 4,
     color: '#334155',
   },
   msgOutgoing: {
     alignSelf: 'flex-end',
-    background: 'linear-gradient(135deg, rgba(5, 101, 71, 0.8) 0%, rgba(4, 78, 56, 0.85) 100%)',
+    background: 'var(--nina-soft)',
     border: '1px solid rgba(16, 185, 129, 0.25)',
     borderBottomRightRadius: 4,
     color: '#ecfdf5',
   },
-  msgTime: { fontSize: 9.5, color: 'rgba(148, 163, 184, 0.7)', textAlign: 'right', marginTop: 5 },
+  msgTime: { fontSize: 12, color: 'rgba(148, 163, 184, 0.7)', textAlign: 'right', marginTop: 5 },
 
   draftBox: {
     padding: '12px 18px',
@@ -4206,7 +3865,7 @@ const ui: Record<string, React.CSSProperties> = {
     display: 'flex',
     gap: 8,
     padding: '12px 18px',
-    background: 'rgba(6, 12, 26, 0.9)',
+    background: 'var(--nina-surface)',
     borderTop: '1px solid rgba(24,35,52,0.06)',
     alignItems: 'center',
     flexShrink: 0,
@@ -4216,7 +3875,7 @@ const ui: Record<string, React.CSSProperties> = {
     padding: '9px 13px',
     borderRadius: 9,
     border: '1px solid rgba(255,255,255,0.09)',
-    background: 'rgba(15, 25, 48, 0.8)',
+    background: 'var(--nina-surface)',
     color: '#182334',
     fontSize: 13,
     outline: 'none',
@@ -4241,8 +3900,8 @@ const ui: Record<string, React.CSSProperties> = {
     height: 36,
     borderRadius: 9,
     border: '1px solid rgba(24,35,52,0.12)',
-    background: 'rgba(20, 30, 60, 0.8)',
-    color: '#f59e0b',
+    background: 'var(--nina-surface)',
+    color: '#956213',
     fontSize: 16,
     cursor: 'pointer',
     display: 'flex',
@@ -4253,7 +3912,7 @@ const ui: Record<string, React.CSSProperties> = {
   },
   quickDrawer: {
     padding: '12px 18px',
-    background: 'rgba(6, 12, 26, 0.97)',
+    background: 'var(--nina-surface)',
     borderTop: '1px solid rgba(24,35,52,0.08)',
     flexShrink: 0,
   },
@@ -4261,7 +3920,7 @@ const ui: Record<string, React.CSSProperties> = {
     padding: '8px 11px',
     borderRadius: 7,
     border: '1px solid rgba(255,255,255,0.07)',
-    background: 'rgba(15, 25, 50, 0.7)',
+    background: 'var(--nina-surface)',
     textAlign: 'left',
     cursor: 'pointer',
     transition: 'all 0.12s ease',
@@ -4276,17 +3935,17 @@ const ui: Record<string, React.CSSProperties> = {
   productCard: {
     padding: 18,
     borderRadius: 13,
-    background: 'rgba(12, 22, 42, 0.7)',
+    background: 'var(--nina-surface)',
     border: '1px solid rgba(255,255,255,0.07)',
     display: 'flex',
     flexDirection: 'column',
     transition: 'border-color 0.18s ease, transform 0.18s ease',
   },
-  categoryTag: { fontSize: 10, fontWeight: 700, color: '#f59e0b', textTransform: 'uppercase', letterSpacing: 0.5 },
+  categoryTag: { fontSize: 12, fontWeight: 700, color: '#956213', textTransform: 'uppercase', letterSpacing: 0.5 },
   bestsellerTag: {
-    fontSize: 9,
-    fontWeight: 800,
-    color: '#10b981',
+    fontSize: 12,
+    fontWeight: 700,
+    color: '#0d7357',
     background: 'rgba(16, 185, 129, 0.12)',
     border: '1px solid rgba(16,185,129,0.25)',
     padding: '1px 6px',
@@ -4294,13 +3953,13 @@ const ui: Record<string, React.CSSProperties> = {
     letterSpacing: 0.4,
   },
   watchName: { fontSize: 15, fontWeight: 700, color: '#182334', marginTop: 5, marginBottom: 6 },
-  watchDesc: { fontSize: 11.5, color: '#64748b', lineHeight: 1.5, flex: 1, marginBottom: 12 },
+  watchDesc: { fontSize: 12, color: '#64748b', lineHeight: 1.5, flex: 1, marginBottom: 12 },
   priceRow: { display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 10 },
-  watchPrice: { fontSize: 19, fontWeight: 800, color: '#10b981' },
+  watchPrice: { fontSize: 19, fontWeight: 700, color: '#0d7357' },
   watchMrp: { fontSize: 12, color: '#475569', textDecoration: 'line-through' },
   featureList: { display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 13 },
   featureChip: {
-    fontSize: 10,
+    fontSize: 12,
     padding: '2px 7px',
     borderRadius: 4,
     background: 'rgba(255,255,255,0.04)',
@@ -4319,7 +3978,7 @@ const ui: Record<string, React.CSSProperties> = {
     padding: '4px 10px',
     borderRadius: 6,
     border: 'none',
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: 600,
     cursor: 'pointer',
     transition: 'filter 0.12s ease',
@@ -4337,7 +3996,7 @@ const ui: Record<string, React.CSSProperties> = {
   formRow: { marginBottom: 13 },
   fieldLabel: {
     display: 'block',
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: 600,
     color: '#64748b',
     marginBottom: 5,
@@ -4362,7 +4021,7 @@ const ui: Record<string, React.CSSProperties> = {
     border: '1px solid rgba(255,255,255,0.07)',
     transition: 'border-color 0.15s ease',
   },
-  statBigNum: { fontSize: 30, fontWeight: 800, color: '#182334', marginBottom: 4 },
+  statBigNum: { fontSize: 30, fontWeight: 700, color: '#182334', marginBottom: 4 },
   statSub: { fontSize: 12, color: '#64748b', fontWeight: 600 },
 
   // ── Buttons ───────────────────────────────────────────────────
@@ -4416,7 +4075,7 @@ const ui: Record<string, React.CSSProperties> = {
     border: '1px solid rgba(255,255,255,0.07)',
     background: 'rgba(255,255,255,0.03)',
     color: '#64748b',
-    fontSize: 11.5,
+    fontSize: 12,
     fontWeight: 600,
     cursor: 'pointer',
     whiteSpace: 'nowrap',
@@ -4448,14 +4107,14 @@ const ui: Record<string, React.CSSProperties> = {
     overflowY: 'auto',
     padding: 26,
     borderRadius: 18,
-    background: 'linear-gradient(145deg, #0d1b32 0%, #08111f 100%)',
+    background: 'var(--nina-surface)',
     border: '1px solid rgba(24,35,52,0.12)',
-    boxShadow: '0 30px 80px rgba(0,0,0,0.85)',
+    boxShadow: '0 24px 80px rgba(24,35,52,0.18)',
   },
   modalHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 },
-  modalTitle: { margin: 0, color: '#182334', fontSize: 17, fontWeight: 800 },
+  modalTitle: { margin: 0, color: '#182334', fontSize: 17, fontWeight: 700 },
   modalCloseBtn: {
-    background: 'rgba(24,35,52,0.08)',
+    background: 'var(--nina-surface)',
     border: '1px solid rgba(24,35,52,0.12)',
     color: '#596579',
     fontSize: 16,
@@ -4473,9 +4132,9 @@ const ui: Record<string, React.CSSProperties> = {
   connectCard: {
     padding: 28,
     borderRadius: 18,
-    background: 'rgba(8, 16, 32, 0.8)',
+    background: 'var(--nina-surface)',
     border: '1px solid rgba(255,255,255,0.08)',
-    boxShadow: '0 20px 50px rgba(0,0,0,0.5)',
+    boxShadow: 'var(--nina-shadow)',
   },
   linkedBox: {
     padding: 22,

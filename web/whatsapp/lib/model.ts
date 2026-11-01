@@ -16,6 +16,10 @@ export type WAMessage = {
 };
 
 export type DeliveryLocation = {
+  confidence?: 'low' | 'medium' | 'high';
+  precision?: 'supplied' | 'rooftop' | 'interpolated' | 'area' | 'unknown';
+  source?: 'customer' | 'google' | 'text';
+  needsReview?: boolean;
   raw: string;
   pincode?: string;
   pincodeMissing: boolean;

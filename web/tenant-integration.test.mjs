@@ -10,6 +10,7 @@ const auth=await import('./whatsapp/lib/auth.ts');
 const authRoute=await import('./whatsapp/app/api/auth/route.ts');
 const workspace=await import('./whatsapp/app/api/workspace/route.ts');
 const webhook=await import('./whatsapp/app/api/webhook/route.ts');
+const locationRoute=await import('./whatsapp/app/api/location/route.ts');
 const queue=await import('./whatsapp/lib/queue-ownership.ts');
 const {NextRequest}=await import('./whatsapp/node_modules/next/server.js');
 const req=(path,body,cookie,origin='https://test.example')=>new NextRequest('https://test.example'+path,{method:body?'POST':'GET',headers:{'content-type':'application/json',origin,...(cookie?{cookie}:{})},...(body?{body:JSON.stringify(body)}:{})});
@@ -116,6 +117,14 @@ test('tenant boundaries and API workflows against an isolated database',async t=
     await consumeRateLimit('test-bucket',2,60000);
     await consumeRateLimit('test-bucket',2,60000);
     await assert.rejects(consumeRateLimit('test-bucket',2,60000),error=>error.status===429);
+  });
+  await t.test('location checks require business access and never fabricate a map position',async()=>{
+    const address='Address: Flat 4, Station Road, Jaipur 302001';
+    assert.equal((await locationRoute.POST(req('/api/location',{address}))).status,401);
+    assert.equal((await locationRoute.POST(req('/api/location',{address,tenantId:b.tenantId},a.cookie))).status,403);
+    const response=await locationRoute.POST(req('/api/location',{address},a.cookie));
+    assert.equal(response.status,200);
+    const data=await response.json();assert.equal(data.location.verified,false);assert.equal(data.location.lat,undefined);
   });
   await t.test('logout revokes the cookie server-side',async()=>{
     const token=a.cookie.slice('wa_session='.length);

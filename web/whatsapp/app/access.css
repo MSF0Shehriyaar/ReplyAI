@@ -1,0 +1,61 @@
+.wa-access {min-height:100dvh;display:grid;grid-template-columns:1fr;background:#fff;color:#172b35;font-family:var(--nina-font);}
+.wa-access-story {background:#ecf5f1;padding:24px;display:flex;flex-direction:column;justify-content:space-between;}
+.wa-access-brand {display:flex;align-items:center;gap:10px;width:fit-content;text-decoration:none;color:#123c32;font-size:24px;font-weight:700;letter-spacing:-1px;}
+.wa-access-brand>span:first-child {display:grid;place-items:center;width:40px;height:40px;background:#10745e;color:#fff;border-radius:12px;}
+.wa-access-brand .wa-access-brand-label {font-size:10px;font-weight:650;letter-spacing:1.8px;color:#447165;margin-left:4px;}
+.wa-access-intro {margin:32px 0 12px;}
+.wa-access-eyebrow {display:block;color:#547267;font-size:11px;font-weight:700;letter-spacing:1.8px;margin-bottom:12px;}
+.wa-access h1 {font-size:clamp(32px,5vw,54px);font-weight:650;line-height:1.12;letter-spacing:-2px;margin:0 0 20px;color:#163b32;}
+.wa-access-intro>p {max-width:380px;color:#4c6a60;font-size:16px;line-height:1.7;margin:0;}
+.wa-access-preview {display:none;max-width:380px;margin-top:40px;background:#fff;border:1px solid #d8e6df;border-radius:18px;padding:20px;box-shadow:0 12px 40px #194c3210;}
+.wa-preview-heading {display:flex;align-items:center;gap:8px;padding-bottom:18px;font-size:13px;font-weight:650;color:#243e35;border-bottom:1px solid #edf2ef;}
+.wa-preview-heading>span:last-child {margin-left:auto;font-size:11px;color:#26785f;font-weight:500;}
+.wa-preview-dot {width:6px;height:6px;border-radius:50%;background:#16876c;}
+.wa-preview-row {display:flex;gap:10px;align-items:center;margin-top:18px;}
+.wa-preview-avatar {display:grid;place-items:center;width:36px;height:36px;border-radius:50%;background:#eef1fb;color:#546498;font-size:11px;}
+.wa-preview-row>div {display:grid;gap:2px;}
+.wa-preview-row b {font-size:12px;font-weight:600;}
+.wa-preview-row>div>span {font-size:11px;color:#62746d;}
+.wa-preview-badge {margin-left:auto;background:#edf7f2;padding:3px 7px;border-radius:5px;font-size:10px;color:#26785f;}
+.wa-preview-message {margin:22px 20px 20px 46px;padding:12px 14px;border-radius:12px 12px 12px 3px;background:#f3f6f4;color:#496158;font-size:12px;line-height:1.6;}
+.wa-preview-compose {display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border:1px solid #e2e9e5;border-radius:9px;color:#6a7c74;font-size:12px;}
+.wa-access-assurance {display:flex;align-items:center;gap:9px;color:#476b5c;font-size:12px;margin-top:28px;}
+.wa-access-panel {display:flex;align-items:center;justify-content:center;padding:32px 24px;}
+.wa-access-form-wrap {width:100%;max-width:400px;}
+.wa-access-symbol {display:grid;place-items:center;width:48px;height:48px;background:#eff6f2;color:#08765b;border:1px solid #e0ebe4;border-radius:14px;margin-bottom:24px;}
+.wa-access-panel h2 {font-size:30px;font-weight:650;line-height:1.2;letter-spacing:-1px;margin:0 0 12px;color:#192d25;}
+.wa-access-description {font-size:14px;line-height:1.65;color:#647269;margin:0 0 24px;}
+.wa-access-tabs {display:grid;grid-template-columns:1fr 1fr;padding:4px;background:#f2f5f3;border:1px solid #e6ebe7;border-radius:11px;gap:4px;margin-bottom:24px;}
+.wa-access-tabs button {border:0;background:transparent;color:#5c6c63;font-size:13px;font-weight:600;border-radius:7px;min-height:40px;}
+.wa-access-tabs button[aria-pressed=true] {background:white;color:#14583f;box-shadow:0 1px 4px #213c2712;}
+.wa-access-form {display:flex;flex-direction:column;gap:18px;}
+.wa-access-form label {display:grid;gap:7px;font-size:13px;font-weight:600;color:#34473b;}
+.wa-access-form input {width:100%;height:48px;padding:0 13px;background:white;color:#1b3023;border:1px solid #cedbd2;border-radius:9px;font-size:15px;line-height:1.5;box-shadow:0 1px 2px #213c2704;}
+.wa-access-form input::placeholder {color:#738078;}
+.wa-access-form input:focus-visible {border-color:#188063;outline:3px solid #d8ede3;outline-offset:1px;}
+.wa-access-password {position:relative;display:block;}
+.wa-access-password input {padding-right:48px;}
+.wa-access-password button {position:absolute;right:3px;top:3px;display:grid;place-items:center;width:42px;height:42px;border:0;background:none;color:#5e7164;border-radius:6px;}
+.wa-access-submit {display:flex;align-items:center;justify-content:center;gap:10px;min-height:48px;border:1px solid #09624b;border-radius:9px;background:#0d7357;color:white;font-size:14px;font-weight:600;margin-top:6px;box-shadow:0 2px 4px #14443012;}
+.wa-access-submit:hover:not(:disabled) {background:#095c46;}
+.wa-access-error {background:#fff2ef;border:1px solid #efd1c9;border-radius:9px;color:#953b2f;font-size:13px;line-height:1.5;padding:12px 14px;margin-bottom:18px;}
+.wa-access-status {font-size:14px;color:#647269;padding:20px 0;}
+.wa-access-hint {font-size:12px;color:#647269;margin:-6px 0 0;}
+.wa-access-footer {display:flex;align-items:center;justify-content:center;gap:6px;color:#647269;font-size:12px;line-height:1.5;margin-top:24px;}
+.wa-access-retry {display:block;margin:16px auto 0;border:0;background:none;color:#0d7357;text-decoration:underline;font-size:13px;}
+.wa-workspace-error {position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:200;background:#fff2ef;color:#953b2f;border:1px solid #efd1c9;border-radius:10px;max-width:calc(100vw - 32px);padding:12px 18px;font-size:14px;box-shadow:0 6px 30px #172b3512;}
+.wa-workspace-error button {margin-left:12px;border:0;background:none;font-weight:650;text-decoration:underline;color:inherit;}
+@media(min-width:900px) {
+  .wa-access {grid-template-columns:46% 54%;}
+  .wa-access-story {padding:48px clamp(32px,5vw,80px);min-height:100dvh;}
+  .wa-access-preview {display:block;}
+  .wa-access-intro {margin:60px 0 50px;}
+  .wa-access-panel {padding:48px;}
+}
+@media(max-width:899px) {
+  .wa-access-story {padding:20px 24px;border-bottom:1px solid #dce8df;}
+  .wa-access-intro,.wa-access-assurance {display:none;}
+  .wa-access-panel {align-items:flex-start;padding-top:36px;}
+  .wa-access {grid-template-rows:auto 1fr;}
+}
+@media(max-width:380px) {.wa-access-panel{padding:24px 18px;}.wa-access-panel h2{font-size:27px;}}

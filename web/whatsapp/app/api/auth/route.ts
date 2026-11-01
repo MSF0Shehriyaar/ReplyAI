@@ -1,3 +1,4 @@
+import {hasSessionCredentials} from '@/lib/session-credentials';
 // ─── WhatsApp Multi-Tenant Authentication API ────────────────────────────
 import { NextRequest, NextResponse } from 'next/server';
 import {
@@ -33,6 +34,7 @@ const authSchema = z.discriminatedUnion('action',[
 // GET — Current authenticated user & tenant session
 export async function GET(request: NextRequest) {
   try {
+    if(!hasSessionCredentials(request)) return NextResponse.json({authenticated:false},{headers:{'Cache-Control':'no-store'}});
     await initDatabase();
     const session = await getAuthSession(request);
     if (!session) {
