@@ -8,6 +8,7 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {routeTarget,upstreamPath,channelHeaders} from './gateway-routing.mjs';
+import {assertSessionRuntime} from './scripts/runtime-config.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -19,6 +20,8 @@ if (fs.existsSync(envPath) && typeof process.loadEnvFile === 'function') {
 }
 
 const isDev = process.argv.includes('dev');
+// Stop before announcing a healthy deployment if sign-in cannot issue sessions.
+if(!isDev)assertSessionRuntime();
 const publicPort = Number(process.env.PORT || 10000);
 const instagramPort = 3000;
 const whatsappPort = 3001;

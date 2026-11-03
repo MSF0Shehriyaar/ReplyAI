@@ -2,15 +2,15 @@ import {db,initDatabase} from './server';
 import {processNextJob} from './queue';
 import {purgeExpiredCatalogCheckouts} from './catalog-checkout';
 
-type Worker={timer:ReturnType<typeof setInterval>;busy:boolean;cursor:string};
+type Worker={timer:ReturnType<typeof setInterval>;busy:boolean;cursor:string;startedAt:number;lastStartedAt:number|null;lastCompletedAt:number|null;lastFailureAt:number|null};
 const runtime=globalThis as typeof globalThis&{__waQueueWorker?:Worker};
 export function startQueueWorker() {
   if(runtime.__waQueueWorker)return;
-  const worker:Worker={timer:setInterval(()=>void tick(),5000),busy:false,cursor:''};
+  const worker:Worker={timer:setInterval(()=>void tick(),5000),busy:false,cursor:'',startedAt:Date.now(),lastStartedAt:null,lastCompletedAt:null,lastFailureAt:null};
   runtime.__waQueueWorker=worker;
   worker.timer.unref();
   async function tick() {
-    if(worker.busy)return;worker.busy=true;
+    if(worker.busy)return;worker.busy=true;worker.lastStartedAt=Date.now();
     try {
       await initDatabase();
       await purgeExpiredCatalogCheckouts();
@@ -20,8 +20,18 @@ export function startQueueWorker() {
       let next=await db().prepare(query).bind(now,now,worker.cursor).first<{tenant_id:string}>();
       if(!next){worker.cursor='';next=await db().prepare(query).bind(now,now,'').first<{tenant_id:string}>();}
       if(next){worker.cursor=next.tenant_id;await processNextJob(next.tenant_id);}
-    }catch{console.error('[WA queue] Background processing unavailable; saved jobs will be checked again.');}
+      worker.lastCompletedAt=Date.now();
+    }catch{worker.lastFailureAt=Date.now();console.error('[WA queue] Background processing unavailable; saved jobs will be checked again.');}
     finally{worker.busy=false;}
   }
   return worker;
+}
+
+// Process-local heartbeat; this does not claim other service instances are healthy.
+export function queueWorkerStatus(){
+  const worker=runtime.__waQueueWorker;
+  if(!worker)return {state:'not_started',startedAt:null,lastStartedAt:null,lastCompletedAt:null,lastFailureAt:null};
+  const {startedAt,lastStartedAt,lastCompletedAt,lastFailureAt}=worker;
+  const state=worker.busy?'processing':lastFailureAt&&lastFailureAt>(lastCompletedAt||0)?'retrying':lastCompletedAt?'running':'starting';
+  return {state,startedAt,lastStartedAt,lastCompletedAt,lastFailureAt};
 }

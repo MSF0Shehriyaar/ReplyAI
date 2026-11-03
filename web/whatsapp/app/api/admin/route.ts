@@ -1,3 +1,4 @@
+import {queueWorkerStatus} from '@/lib/queue-worker';
 import {hasSessionCredentials} from '@/lib/session-credentials';
 import {requireMasterAdmin,revokeSession} from '@/lib/auth';
 import {db,initDatabase,AppError,errorResponse,audit,providerConnections,settings,freshBusinessSettings} from '@/lib/server';
@@ -18,7 +19,7 @@ export async function GET(request:Request) {
     const params=new URL(request.url).searchParams;
     const page=(key:string)=>Math.min(100000,Math.max(1,Number.parseInt(params.get(key)||'1',10)||1));
     const usersPage=page('usersPage'),sessionsPage=page('sessionsPage'),activityPage=page('activityPage'),pageSize=50;
-    const [tenants,users,sessions,activity,daily,logins,providers,queue,totals,branding,ownerRows,failures,configs,masterConfig]=await Promise.all([
+    const [tenants,users,sessions,activity,daily,logins,providers,queue,totals,branding,ownerRows,failures,configs,masterConfig,queueIssues]=await Promise.all([
       db().prepare(`SELECT b.id,b.name,b.owner_name AS ownerName,b.owner_email AS ownerEmail,b.status,b.created_at AS createdAt,b.updated_at AS updatedAt,
         COALESCE(u.calls,0) AS calls,COALESCE(u.tokens,0) AS tokens,COALESCE(u.sent,0) AS sent,COALESCE(u.received,0) AS received,
         (SELECT count(*) FROM business_users WHERE tenant_id=b.id) AS users,
@@ -53,6 +54,7 @@ export async function GET(request:Request) {
       db().prepare("SELECT key,payload FROM wa_state WHERE key LIKE 'ai_failure:%' ORDER BY key").all<{key:string;payload:string}>(),
       db().prepare('SELECT tenant_id,payload FROM tenant_settings').all<{tenant_id:string;payload:string}>(),
       settings('biz_titan_watches'),
+      db().prepare("SELECT j.id,j.tenant_id AS tenantId,b.name AS businessName,j.thread_id AS threadId,j.status,j.attempts,j.created AS availableAt FROM wa_jobs j JOIN business_tenants b ON b.id=j.tenant_id WHERE j.status IN ('failed','processing','pending') AND b.status<>'deleted' ORDER BY CASE j.status WHEN 'failed' THEN 0 WHEN 'processing' THEN 1 ELSE 2 END,j.created LIMIT 30").all(),
     ]);
     const ownerSessions=ownerRows.results.flatMap(row=>{try{const s=JSON.parse(row.payload);return [{id:row.key.slice('owner_session:'.length),name:s.user||'Owner',createdAt:s.createdAt||null,lastSeenAt:s.lastSeenAt||null,expiresAt:s.expiresAt||null,status:s.revokedAt?'revoked':s.expiresAt>now?'active':'expired',current:row.key==='owner_session:'+owner.jti}];}catch{return [];}});
     let ninaName='Nina';try{ninaName=(branding&&JSON.parse(branding.payload).profile?.name)||ninaName;}catch{}
@@ -66,7 +68,7 @@ export async function GET(request:Request) {
       return {...tenant,connectedPhone:device?.phone||tenant.connectedPhone,connectionState:tenant.connectionProvider==='cloud'?'cloud_configured':device?.state||'disconnected',automation:{enabled:!!config.enabled,approval:!!config.approval,profileReady:missingBusinessProfile(config).length===0,products:config.catalog?.length||0}};
     });
     const providerStatus=await Promise.all(providers.map(async p=>{const limit=await db().prepare('SELECT payload FROM workspace_state WHERE key=?').bind('provider_limit:'+p.id).first<{payload:string}>();let until=0;try{until=limit?JSON.parse(limit.payload).until:0;}catch{}return {id:p.id,label:p.label,provider:p.provider,model:p.model,verified:p.verified,cooldownUntil:until>now?until:null};}));
-    return Response.json({at:now,ownerName:owner.name,ninaName,tenants:businesses,users:users.results,sessions:sessions.results,ownerSessions,activity:activity.results,daily:daily.results,logins:logins.results,providers:providerStatus,queue:queueCounts,totals,health:{database:'available',uptimeSeconds:Math.floor(process.uptime()),providerFailures:failures.results.map(row=>{let at=0;try{at=JSON.parse(row.payload).at||0;}catch{}return {providerId:row.key.slice('ai_failure:'.length),at};})},pagination:{pageSize,usersPage,sessionsPage,activityPage},dailyTracking:'Daily AI and message totals are recorded from this update onward; earlier totals remain cumulative.'},{headers:{'Cache-Control':'no-store'}});
+    return Response.json({at:now,ownerName:owner.name,ninaName,tenants:businesses,users:users.results,sessions:sessions.results,ownerSessions,activity:activity.results,daily:daily.results,logins:logins.results,providers:providerStatus,queue:queueCounts,totals,health:{worker:queueWorkerStatus(),queueIssues:queueIssues.results,database:'available',uptimeSeconds:Math.floor(process.uptime()),providerFailures:failures.results.map(row=>{let at=0;try{at=JSON.parse(row.payload).at||0;}catch{}return {providerId:row.key.slice('ai_failure:'.length),at};})},pagination:{pageSize,usersPage,sessionsPage,activityPage},dailyTracking:'Daily AI and message totals are recorded from this update onward; earlier totals remain cumulative.'},{headers:{'Cache-Control':'no-store'}});
   }catch(error){return errorResponse(error);}
 }
 

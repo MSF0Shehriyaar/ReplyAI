@@ -28,6 +28,27 @@ const {isPrivateWorkspaceRequest,PRIVATE_WORKSPACE_PROOF_HEADER}=await import('.
 const {NextRequest}=await import('./instagram/node_modules/next/server.js');
 const req=(path,body,cookie)=>new NextRequest('https://owner.test'+path,{method:body?'POST':'GET',headers:{origin:'https://owner.test','content-type':'application/json',...(cookie?{cookie}:{})},...(body?{body:JSON.stringify(body)}:{})});
 test('public deployment health check exposes no owner or workspace data',async()=>{const response=await health.GET();assert.equal(response.status,200);assert.deepEqual(await response.json(),{status:'ok'});});
+
+test('missing session configuration reports service unavailable, issues no session and fails readiness',async()=>{
+  const original=process.env.SESSION_SIGNING_KEY;
+  try {
+    for(const value of ['', 'short',' '.repeat(64)]) {
+      process.env.SESSION_SIGNING_KEY=value;
+      const before=await database.prepare("SELECT COUNT(*) n FROM workspace_state WHERE key LIKE 'owner_session:%'").first();
+      const response=await auth.POST(req('/api/auth',{action:'login',username:'Fixture Owner',password:'fixture'}));
+      assert.equal(response.status,503);assert.equal(response.headers.get('set-cookie'),null);assert.equal(response.headers.get('cache-control'),'no-store');
+      const result=await response.json();assert.equal(result.code,'AUTH_CONFIGURATION_UNAVAILABLE');assert.ok(!JSON.stringify(result).includes('fixture'));
+      const after=await database.prepare("SELECT COUNT(*) n FROM workspace_state WHERE key LIKE 'owner_session:%'").first();assert.equal(after.n,before.n);
+      const ready=await health.GET();assert.equal(ready.status,503);assert.deepEqual(await ready.json(),{status:'unavailable'});
+    }
+  }finally{process.env.SESSION_SIGNING_KEY=original;}
+});
+
+test('malformed requests remain client errors rather than server configuration errors',async()=>{
+  const request=new NextRequest('https://owner.test/api/auth',{method:'POST',headers:{origin:'https://owner.test','content-type':'application/json'},body:'invalid json'});
+  assert.equal((await auth.POST(request)).status,400);
+  assert.equal((await auth.POST(req('/api/auth',{action:'unknown'}))).status,400);
+});
 test('actual owner login cookie authenticates workspace and private status routes, then revokes',async()=>{
   const salt='fixture-only-salt',password='fixture-long-password';
   let username='Fixture Owner';

@@ -21,3 +21,18 @@
 @media(max-width:759px){.nina-admin-toolbar{display:grid;grid-template-columns:1fr 44px;}.nina-admin-toolbar>.nina-admin-primary{grid-column:1/-1;width:100%;}.nina-admin-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));overflow:visible;}.nina-admin-tabs button{padding:8px;}}
 .private-service-header{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:16px 24px;background:white;border-bottom:1px solid var(--workspace-line);font-size:13px;}.private-service-header a{color:var(--workspace-accent);text-decoration:none;}.private-service-header span{margin-left:auto;}.private-business-create{border:1px solid var(--workspace-line);border-radius:16px;padding:24px;width:min(520px,calc(100vw - 32px));max-height:90dvh;overflow:auto;background:white;color:var(--workspace-ink);}.private-business-create::backdrop{background:#221a3b77;}.private-business-create form,.private-business-create label{display:grid;gap:10px;}.private-business-create input{padding:12px;border:1px solid var(--workspace-line);border-radius:8px;}.private-business-create footer{display:flex;gap:10px;justify-content:flex-end;margin-top:16px;}.private-business-create button{padding:10px 14px;border:1px solid var(--workspace-line);border-radius:8px;background:var(--workspace-soft);color:var(--workspace-accent);}
 .private-service-header button{border:1px solid var(--workspace-line);color:var(--workspace-accent);background:var(--workspace-soft);border-radius:8px;padding:9px 12px;min-height:40px;cursor:pointer;font-size:12px}
+
+/* On phones, each user is a labelled card instead of a six-column table. */
+@media(max-width:759px){
+  .nina-admin-table{border:0;overflow:visible;}
+  .nina-admin-table table,.nina-admin-table tbody{display:block;min-width:0;width:100%;}
+  .nina-admin-table thead{position:absolute;width:1px;height:1px;clip-path:inset(50%);overflow:hidden;}
+  .nina-admin-table tr{display:block;border:1px solid var(--workspace-line);border-radius:12px;padding:12px;margin-bottom:12px;background:var(--workspace-surface);}
+  .nina-admin-table td{display:grid;grid-template-columns:minmax(90px,.7fr) minmax(0,1.3fr);gap:6px 12px;padding:10px 0;min-width:0!important;overflow-wrap:anywhere;}
+  .nina-admin-table td::before{content:attr(data-label);color:var(--workspace-muted);font-weight:600;grid-column:1;grid-row:1/5;}
+  .nina-admin-table td>:is(small,span,strong){grid-column:2;}
+  .nina-admin-table td:last-child{border:0;}
+  .nina-admin-panel{min-width:0;}
+  .nina-admin-totals dd{overflow-wrap:anywhere;}
+  .private-service-header{padding:12px 16px;gap:10px;}
+}

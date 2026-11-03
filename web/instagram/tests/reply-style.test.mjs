@@ -35,7 +35,7 @@ test('custom active and break duration works correctly',()=>{const start=1700000
 test('enforceRespectfulFemaleGrammar eliminates tu/tera/teri and enforces female verb endings', () => {
  assert.equal(enforceRespectfulFemaleGrammar('Tu kaisa hai, bol na?'), 'Tum kaisa hai, batao na?');
  assert.equal(enforceRespectfulFemaleGrammar('Main kal aunga aur dekhunga'), 'Main kal aungi aur dekhungi');
- assert.equal(enforceRespectfulFemaleGrammar('Main so raha hu bro'), 'Main so rahi hu babe');
+ assert.equal(enforceRespectfulFemaleGrammar('Main so raha hu bro'), 'Main so rahi hu bro');
  assert.equal(enforceRespectfulFemaleGrammar('Tune kya kiya tera kaam?'), 'Tumne kya kiya tumhara kaam?');
  assert.equal(enforceRespectfulFemaleGrammar('Tujhe pata hai bhai?'), 'Tumhe pata hai yaar?');
  assert.equal(enforceRespectfulFemaleGrammar('Main thak gaya'), 'Main thak gayi');

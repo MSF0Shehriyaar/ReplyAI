@@ -7,8 +7,7 @@ function ownerToken(headers:Headers) {
   try{return cookie?decodeURIComponent(cookie.slice('nina_owner_session='.length)):'';}catch{return '';}
 }
 async function signingKey() {
-  const secret=process.env.SESSION_SIGNING_KEY||'';
-  if(secret.length<32)throw new Error('Private service signing is not configured.');
+  const secret=sessionSigningSecret();
   return crypto.subtle.importKey('raw',encoder.encode(secret),{name:'HMAC',hash:'SHA-256'},false,['sign','verify']);
 }
 function message(request:Request,time:number) {
@@ -34,3 +33,4 @@ export async function isPrivateWorkspaceRequest(request:Request) {
   }catch{return false;}
 }
 export const PRIVATE_WORKSPACE_PROOF_HEADER=headerName;
+import {sessionSigningSecret} from './session-config';

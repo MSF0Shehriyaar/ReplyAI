@@ -214,32 +214,18 @@ export async function generationCandidates(accountProvider?:string,preferredProv
  const verified=providers.filter(p=>p.verified);
  const candidateIds:string[]=[];
  if(selected?.id) candidateIds.push(selected.id);
- if(policy.order?.length){
+ if(policy.enabled&&policy.order?.length){
   for(const id of policy.order){
    if(policy.approvedIds?.includes(id)&&!candidateIds.includes(id)&&verified.some(p=>p.id===id)){
     candidateIds.push(id);
    }
   }
  }
- for(const p of verified){
-  if(!candidateIds.includes(p.id)){
-   candidateIds.push(p.id);
-  }
- }
  const result = candidateIds.map(id=>providers.find(p=>p.id===id)).filter((p):p is ProviderConnection=>!!p?.verified);
- if(preferUncensored){
-  result.sort((a,b)=>{
-   const aSpicy = a.provider==='aihorde'||a.provider==='cloudflare'||/stheno|mythomax|uncensored|spicy|horde|erotic/i.test(a.label+a.model);
-   const bSpicy = b.provider==='aihorde'||b.provider==='cloudflare'||/stheno|mythomax|uncensored|spicy|horde|erotic/i.test(b.label+b.model);
-   if(aSpicy&&!bSpicy) return -1;
-   if(!aSpicy&&bSpicy) return 1;
-   return 0;
-  });
- }
  return result;
 }
-async function markProviderLimited(provider:ProviderConnection,until:number){await db().prepare("INSERT INTO workspace_state(key,payload) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET payload=json_object('until',MAX(COALESCE(json_extract(workspace_state.payload,'$.until'),0),?))").bind('provider_limit:'+provider.id,JSON.stringify({until}),until).run();await audit('Provider limit reached',provider.label+' is cooling down; the next approved key will be used if available.');}
-async function selectSharedFallback(failedId:string,nextId:string){const policy=await providerRouting();if(!policy.shared)return;const primary=await readState<string>('primary_provider','legacy-groq');await db().prepare('INSERT OR IGNORE INTO workspace_state(key,payload) VALUES (?,?)').bind('provider_route_active',JSON.stringify(primary)).run();const changed=await db().prepare("UPDATE workspace_state SET payload=? WHERE key='provider_route_active' AND payload=?").bind(JSON.stringify(nextId),JSON.stringify(failedId)).run();if(changed.meta.changes)await audit('Shared API switched','Both accounts now use the next approved API connection.');}
+async function markProviderLimited(provider:ProviderConnection,until:number){await db().prepare("INSERT INTO workspace_state(key,payload) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET payload=json_object('until',MAX(COALESCE(json_extract(workspace_state.payload,'$.until'),0),?))").bind('provider_limit:'+provider.id,JSON.stringify({until}),until).run();stateCache.delete('provider_limit:'+provider.id);await audit('Provider limit reached',provider.label+' is cooling down; the next approved key will be used if available.');}
+async function selectSharedFallback(failedId:string,nextId:string){const policy=await providerRouting();if(!policy.shared)return;const primary=await readState<string>('primary_provider','legacy-groq');await db().prepare('INSERT OR IGNORE INTO workspace_state(key,payload) VALUES (?,?)').bind('provider_route_active',JSON.stringify(primary)).run();const changed=await db().prepare("UPDATE workspace_state SET payload=? WHERE key='provider_route_active' AND payload=?").bind(JSON.stringify(nextId),JSON.stringify(failedId)).run();stateCache.delete('provider_route_active');if(changed.meta.changes)await audit('Shared API switched','Both accounts now use the next approved API connection.');}
 
 export async function connectionStatus():Promise<Connections>{
  const keys=(await db().prepare('SELECT key FROM encrypted_secrets').all<{key:string}>()).results.map(r=>r.key);
@@ -547,7 +533,8 @@ export async function generateReply(input:string,channel:'dm'|'comment',history:
   providerToUse=account.providerId;
  }
  uncensored=uncensored??((account?.tone||s.tone)==='erotic'||(account?.tone||s.tone)==='spicy');
- const flag=reviewFlag(input);if(!uncensored&&flag&&!flag.startsWith('Explicit message'))throw new AppError(flag+'. This message has been kept for human review.',422);
+ const flag=reviewFlag(input);if(flag&&!flag.startsWith('Explicit message'))throw new AppError(flag+'. This message has been kept for human review.',422);
+ if(!providerOverride&&(await providerRouting()).shared)providerToUse=undefined;
  const provider=providerToUse?(await providerConnections()).find(p=>p.id===providerToUse):await selectedProvider(account?.providerId);
  if(!provider)throw new AppError('Provider connection not found.',404);
  if(!provider.verified&&!providerToUse)throw new AppError('Choose a tested provider in Connections before generating replies.',412);
@@ -557,7 +544,7 @@ export async function generateReply(input:string,channel:'dm'|'comment',history:
  const isAdultTone=(account?.tone||s.tone)==='erotic'||(account?.tone||s.tone)==='spicy'||uncensored;
  const targetMaxWords = channel === 'comment'
    ? Math.max(10, Math.min(18, s.maxWords ?? 14))
-   : (s.maxWords ?? (s.length===1?8:s.length===2?15:s.length===3?28:12));
+   : s.length===1?(s.maxWords??8):s.length===2?45:90;
  let cleanInput=input.trim();
  if (channel === 'comment') {
   cleanInput = cleanInput.replace(/^@?kurain\.[a-z0-9_]+\s*/i, '').trim();
@@ -570,7 +557,7 @@ export async function generateReply(input:string,channel:'dm'|'comment',history:
   customInstructions: account?.customInstructions,
   recipientUsername: options?.recipientUsername
  }, uncensored, options?.postContext, options?.mediaType);
- const system=options?.systemPrompt||defaultSystem;
+ const system=options?.systemPrompt||(defaultSystem+'\nResponse length (overrides generic short-reply guidance): '+replyLengthInstruction(s.length));
  const rawRecent=s.memory?history.slice(-10):[];
   // Create a recap summary of the conversation context
   let conversationRecap = '';
@@ -628,6 +615,7 @@ export async function generateReply(input:string,channel:'dm'|'comment',history:
    const key=await secret(providerSecretId(candidate.id));if(!key)continue;
    const identity=candidate.provider+':'+key;if(seen.has(identity))continue;seen.add(identity);
    if(limitedId)await selectSharedFallback(limitedId,candidate.id);
+   await claimGeneration();
    const config=providerConfig[candidate.provider];let response:Response;
    let modelToUse=options?.modelOverride||candidate.model;
    if(candidate.provider==='cloudflare'&&(modelToUse.includes('mistral-7b')||modelToUse==='@cf/mistral/mistral-7b-instruct-v0.2'||modelToUse==='@cf/mistral/mistral-7b-instruct-v0.1'))modelToUse='@cf/mistralai/mistral-small-3.1-24b-instruct';
@@ -642,7 +630,7 @@ export async function generateReply(input:string,channel:'dm'|'comment',history:
       });
       const replyText = result?.response || result?.choices?.[0]?.message?.content || (typeof result === 'string' ? result : '');
       if(replyText && !isGenericRefusal(replyText)){
-       await claimGeneration();
+
        return replyText;
       }
      }catch{}
@@ -669,7 +657,7 @@ export async function generateReply(input:string,channel:'dm'|'comment',history:
     }
     const cfText = String(data.choices?.[0]?.message?.content??'').replace(/<think>[\s\S]*?<\/think>/g,'').trim();
     if(cfText && !isGenericRefusal(cfText)){
-     await claimGeneration();
+
      return cfText;
     }
     continue;
@@ -730,7 +718,7 @@ export async function generateReply(input:string,channel:'dm'|'comment',history:
      }catch{}
     }
     if(hordeReply && !isGenericRefusal(hordeReply)){
-     await claimGeneration();
+
      return hordeReply;
     }
     await markProviderLimited(candidate,Date.now()+45000);limitedId=candidate.id;continue;
@@ -738,37 +726,26 @@ export async function generateReply(input:string,channel:'dm'|'comment',history:
    try{response=await fetch(config.base+'/chat/completions',{method:'POST',headers:{Authorization:'Bearer '+key,'Content-Type':'application/json'},body:JSON.stringify(completionBody(candidate.provider,modelToUse,conversation,options?.temperature)),signal:AbortSignal.timeout(Math.max(1,Math.min(9500,generationDeadline-Date.now())))});}
    catch{
     await traceAPI('provider',candidate.id,candidate.provider,0,new Headers());
-    await markProviderLimited(candidate,Date.now()+30000);limitedId=candidate.id;continue;
+    throw new AppError('The AI provider timed out. This reply remains queued for retry.',503,true);
    }
    let data:any;try{data=await response.json();}catch{
     await traceAPI('provider',candidate.id,candidate.provider,response.status,response.headers);
-    await markProviderLimited(candidate,Date.now()+30000);limitedId=candidate.id;continue;
+    throw new AppError('The AI provider returned an unreadable response.',502,true);
    }
    await traceAPI('provider',candidate.id,candidate.provider,response.status,response.headers,data);
    if(!response.ok){
-    const isModerationError=response.status===400&&/moderation|safety|policy|blocked|flagged|harmful/i.test(JSON.stringify(data||''));
-    if(isModerationError){
-     await markProviderLimited(candidate,Date.now()+120000);
-     limitedId=candidate.id;
-     continue;
-    }
     if(providerLimited(response.status,data)){
      const until=providerRetryAt(response.headers,data);
-     await markProviderLimited(candidate,until);
-     earliest=Math.min(earliest,until);
-    }else{
-     await markProviderLimited(candidate,Date.now()+60000);
+     await markProviderLimited(candidate,until);earliest=Math.min(earliest,until);limitedId=candidate.id;continue;
     }
-    limitedId=candidate.id;continue;
+    if(response.status===401||response.status===403)throw new AppError('The provider rejected the API key. Check this connection before retrying.',502);
+    if(response.status===400)throw new AppError('The provider declined this request. Review it before retrying.',422);
+    throw new AppError('The AI provider is temporarily unavailable.',502,response.status>=500);
    }
    const candidateContent = String(data.choices?.[0]?.message?.content??'').replace(/<think>[\s\S]*?<\/think>/g,'').replace(/\s+/g,' ').trim();
    if(!candidateContent)continue;
-   if(isGenericRefusal(candidateContent)){
-    await markProviderLimited(candidate,Date.now()+120000);
-    limitedId=candidate.id;
-    continue;
-   }
-   await claimGeneration();
+
+
    await db().prepare('UPDATE usage SET tokens=tokens+? WHERE day=?').bind(Number(data.usage?.total_tokens??0),day).run();
    return candidateContent;
   }
@@ -842,9 +819,11 @@ export async function sendReply(t:Thread,text:string,eventId?:string,eventIds:st
   if (eventId && !chWin.active) throw new AppError('Scheduled break: ' + (t.channel === 'dm' ? 'DMs are resting' : 'Comments are paused') + '. The reply remains queued.', 409, true);
   if (eventIds.some(id => t.lastReplyEventIds?.includes(id) || t.lastReplyEventId === id)) throw new AppError('This message already has a confirmed reply.', 409);
 
-  const oldStatus = t.status === 'sending' || t.status === 'uncertain' ? (t.draft ? 'review' : 'open') : t.status;
+  if(t.status==='sending'||t.status==='uncertain')throw new AppError('Verify the previous delivery in Instagram before sending another reply.',409);
+  const oldStatus=t.status;
   t.status = 'sending';
   t.pendingEventId = eventId;
+  t.pendingEventIds = eventIds;
   await saveThread(t);
   t.version = (t.version || 0) + 1;
 
@@ -860,10 +839,11 @@ export async function sendReply(t:Thread,text:string,eventId?:string,eventIds:st
     response = await fetch(url, { method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body, signal: AbortSignal.timeout(6000) });
   } catch {
     await traceAPI('meta', c.id, 'meta', 0, new Headers());
-    t.status = oldStatus;
+    t.status = 'uncertain';
+    t.flagged='Delivery uncertain · verify in Instagram before resending';
     await saveThread(t);
     await audit('Send timed out', 'Instagram send timed out for ' + t.username);
-    throw new AppError('The send timed out. Please try sending again.', 503);
+    throw new AppError('Delivery could not be verified. Check Instagram before resending.', 503);
   }
 
   let metadata: any;
@@ -879,7 +859,8 @@ export async function sendReply(t:Thread,text:string,eventId?:string,eventIds:st
   let receipt: any;
   try { receipt = await response.json(); } catch {}
   if (!(receipt?.message_id || receipt?.id)) {
-    t.status = oldStatus;
+    t.status = 'uncertain';
+    t.flagged='Delivery uncertain · Instagram returned no receipt';
     await saveThread(t);
     throw new AppError('Instagram did not return a delivery confirmation ID.', 502);
   }
@@ -899,6 +880,7 @@ export async function sendReply(t:Thread,text:string,eventId?:string,eventIds:st
   t.lastReplyEventId = eventId;
   t.lastReplyEventIds = eventIds;
   t.pendingEventId = undefined;
+  t.pendingEventIds = undefined;
   t.messages.push({ role: 'outgoing', text: outboundText, at: Date.now() });
   t.draft = '';
   t.status = 'resolved';
@@ -985,7 +967,7 @@ export async function syncInstagramReels(accountId?:string, stopAtExisting=true)
  const s=await settings();
  const graphVersion=s.graphVersion||'v25.0';
  const ownerId=acc.igId||'me';
- 
+
  const sCurrent = await settings();
  const existingCatalog = sCurrent.postCatalog || [];
  const existingIds = new Set(existingCatalog.map(p => p.id));
@@ -1005,7 +987,7 @@ export async function syncInstagramReels(accountId?:string, stopAtExisting=true)
      }
      const pageData: any = await res.json();
      const pageItems: any[] = pageData?.data || [];
-     
+
      for (const item of pageItems) {
        if (stopAtExisting && existingIds.has(item.id)) {
          // Stop scanning! Since Instagram returns media newest-first,

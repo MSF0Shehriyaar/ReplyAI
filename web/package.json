@@ -5,7 +5,7 @@
   "scripts": {
     "build": "pnpm --filter nina-instagram-automation build && pnpm --filter nina-whatsapp-automation build",
     "start": "node server.mjs",
-    "dev": "node server.mjs dev"
+    "dev": "node server.mjs dev",
+    "test": "node scripts/check.mjs"
   }
 }
-

@@ -1,5 +1,6 @@
 // Exercise the actual server routes with an isolated SQLite database and mocked
 // providers/Instagram. No production credentials, generation, or messages used.
+import {createHmac,randomUUID} from 'node:crypto';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
@@ -24,21 +25,26 @@ async function fixture(fixtureOptions={}){
   throw new Error('Unexpected external request');
  };
  const ClockDate=fixtureOptions.clock?class extends Date{static now(){return fixtureOptions.clock.now;}}:Date;
- const context=vm.createContext({Date:ClockDate,console,crypto,TextEncoder,TextDecoder,Request,Response,Headers,AbortSignal,Uint8Array,ArrayBuffer,Set,Map,URL,fetch:fakeFetch});
+ const fixtureEnv={DB,CREDENTIALS_KEY:'1'.repeat(64),SESSION_SIGNING_KEY:'fixture-session-key-'.repeat(3)};
+ const context=vm.createContext({__CLOUDFLARE_ENV__:fixtureEnv,process:{env:fixtureEnv},atob,btoa,Date:ClockDate,console,crypto,TextEncoder,TextDecoder,Request,Response,Headers,AbortSignal,Uint8Array,ArrayBuffer,Set,Map,URL,fetch:fakeFetch});
  const cache=new Map();
- async function load(file){if(cache.has(file))return cache.get(file);if(file==='cloudflare:workers'){const m=new vm.SyntheticModule(['env'],function(){this.setExport('env',{DB,CREDENTIALS_KEY:'1'.repeat(64)});},{context});cache.set(file,m);return m;}if(file==='zod'){const m=new vm.SyntheticModule(['z'],function(){this.setExport('z',z);},{context});cache.set(file,m);return m;}
+ async function load(file){if(cache.has(file))return cache.get(file);if(file===path.join(root,'lib/turso.ts')){const m=new vm.SyntheticModule(['createTursoAdapter'],function(){this.setExport('createTursoAdapter',()=>{throw new Error('External database access is forbidden in this fixture');});},{context});cache.set(file,m);return m;}if(file==='cloudflare:workers'){const m=new vm.SyntheticModule(['env'],function(){this.setExport('env',{DB,CREDENTIALS_KEY:'1'.repeat(64)});},{context});cache.set(file,m);return m;}if(file==='zod'){const m=new vm.SyntheticModule(['z'],function(){this.setExport('z',z);},{context});cache.set(file,m);return m;}
   const code=ts.transpileModule(readFileSync(file,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText;
-  const m=new vm.SourceTextModule(code,{context,identifier:file});cache.set(file,m);return m;
+  const m=new vm.SourceTextModule(code,{context,identifier:file,importModuleDynamically:async(spec,from)=>{const loaded=await link(spec,from);if(loaded.status==='unlinked')await loaded.link(link);if(loaded.status==='linked')await loaded.evaluate();return loaded;}});cache.set(file,m);return m;
  }
  async function link(spec,from){return load(spec.startsWith('@/')?path.join(root,spec.slice(2))+'.ts':spec.startsWith('.')?path.resolve(path.dirname(from.identifier),spec)+'.ts':spec);}
  const server=await load(path.join(root,'lib/server.ts'));await server.link(link);await server.evaluate();
- async function route(name){const m=await load(path.join(root,'app/api/'+name+'/route.ts'));if(m.status==='unlinked')await m.link(link);if(m.status==='linked')await m.evaluate();return m.namespace;}
+ const sessionId=randomUUID(),user='fixture-owner',exp=ClockDate.now()+86400000;
+ const payload=JSON.stringify({user,jti:sessionId,exp});
+ const token=Buffer.from(payload).toString('base64')+'.'+createHmac('sha256',fixtureEnv.SESSION_SIGNING_KEY).update(payload).digest('hex');
+ sql.prepare('INSERT INTO workspace_state VALUES (?,?)').run('owner_session:'+sessionId,JSON.stringify({user,expiresAt:exp}));
+ async function route(name){const m=await load(path.join(root,'app/api/'+name+'/route.ts'));if(m.status==='unlinked')await m.link(link);if(m.status==='linked')await m.evaluate();return Object.fromEntries(Object.entries(m.namespace).map(([key,handler])=>[key,typeof handler!=='function'?handler:request=>{request??=new Request('https://nina.test/api/'+name,{headers:{'x-nina-client':'1'}});if(request.headers.get('x-nina-client')==='1'){const headers=new Headers(request.headers);headers.set('cookie','nina_owner_session='+encodeURIComponent(token));headers.set('origin','https://nina.test');request=new Request(request,{headers});}return handler(request);} ]));}
  const manage=await route('managed-connections'),webhook=await route('webhook'),process=await route('process');
  const post=async(payload)=>manage.POST(new Request('https://nina.test/api/managed-connections',{method:'POST',headers:{'x-nina-client':'1',Origin:'https://nina.test','Content-Type':'application/json'},body:JSON.stringify(payload)}));
  async function event(entries){const body=JSON.stringify({object:'instagram',entry:entries});const key=await crypto.subtle.importKey('raw',new TextEncoder().encode('fixture-app-secret'),{name:'HMAC',hash:'SHA-256'},false,['sign']);const hash=new Uint8Array(await crypto.subtle.sign('HMAC',key,new TextEncoder().encode(body)));return webhook.POST(new Request('https://nina.test/api/webhook',{method:'POST',headers:{'x-hub-signature-256':'sha256='+Buffer.from(hash).toString('hex')},body}));}
  const run=()=>process.POST(new Request('https://nina.test/api/process',{method:'POST',headers:{'x-nina-client':'1'},body:'{}'}));
  const s=server.namespace;await s.saveSecret('instagram_token','fixture-owner-token');await s.saveSecret('instagram_app_secret','fixture-app-secret');await s.saveSecret('groq_key','fixture-groq-key');await s.writeState('connection',{instagramVerified:true,username:'current',igId:'100',aiVerified:true,lastEvent:Date.now()});
- const {defaults}= (await load(path.join(root,'lib/model.ts'))).namespace;await s.writeState('settings',{...defaults,enabled:true,approval:false,length:1,dailyLimit:0});
+ const {defaults}= (await load(path.join(root,'lib/model.ts'))).namespace;await s.writeState('settings',{...defaults,enabled:true,approval:false,length:1,dailyLimit:0,replyDelaySeconds:0,dmReplyDelaySeconds:0,commentReplyDelaySeconds:0,autoDeleteEnabled:true});
  return {s,post,event,run,sql,sends,generations,route};
 }
 test('accounts keep tokens, inboxes, pause state and provider routing separate',async()=>{
@@ -55,7 +61,7 @@ test('accounts keep tokens, inboxes, pause state and provider routing separate',
  const p=(await f.s.providerConnections()).find(p=>p.provider==='gemini');assert.equal((await f.post({kind:'provider',action:'test',id:p.id})).status,200);
  assert.equal((await f.post({kind:'provider',action:'activate',id:p.id})).status,400);
  assert.equal((await f.post({kind:'instagram',action:'update',id:second.id,providerId:p.id})).status,400);
- assert.equal((await f.post({kind:'instagram',action:'update',id:second.id,enabled:true,providerId:p.id,billingAcknowledged:true})).status,200);
+ assert.equal((await f.post({kind:'instagram',action:'update',id:second.id,enabled:true,providerId:p.id,billingAcknowledged:true,dmReplyDelaySeconds:0,commentReplyDelaySeconds:0})).status,200);
  assert.equal((await (await f.event([entry('200','three')])).json()).accepted,1);await f.run();
  assert.equal(f.sends.length,2);assert.ok(f.sends[1].url.endsWith('/200/messages'));assert.equal(f.sends[1].authorization,'Bearer fixture-second-token');assert.ok(f.generations[1].url.startsWith('https://generativelanguage.googleapis.com/'));assert.equal(f.generations[1].authorization,'Bearer fixture-gemini-key');
  const status=await f.s.connectionStatus();assert.equal(status.primaryProviderId,'legacy-groq');assert.ok(!JSON.stringify(status).includes('fixture-'));
@@ -68,6 +74,34 @@ test('accounts keep tokens, inboxes, pause state and provider routing separate',
 });
 
 function messageEvent(mid,at=Date.now()){return {id:'100',messaging:[{sender:{id:'123456'},recipient:{id:'100'},timestamp:at,message:{mid,text:'Hello'}}]};}
+
+test('an uncertain delivery preserves new inquiries and requires explicit owner verification',async()=>{
+ let attempts=0;const f=await fixture({remoteHook:async url=>{if(url.endsWith('/messages')){attempts++;throw new Error('Connection dropped after request');}}});
+ try{
+  await f.event([messageEvent('unknown-send')]);await f.run();let t=(await f.s.allThreads())[0];assert.equal(t.status,'uncertain');
+  const later=messageEvent('later-question');later.messaging[0].message.text='Another question';await f.event([later]);await f.run();
+  t=await f.s.getThread(t.id);assert.ok(t.messages.some(m=>m.eventId==='later-question'));assert.equal(attempts,1);
+  const route=await f.route('threads');const act=(action,text)=>route.POST(new Request('https://nina.test/api/threads',{method:'POST',headers:{'x-nina-client':'1'},body:JSON.stringify({id:t.id,action,text})}));
+  assert.equal((await act('send','Do not duplicate')).status,409);assert.equal((await act('generate')).status,409);assert.equal((await act('resolve')).status,409);
+  assert.equal((await act('confirm-delivery')).status,200);t=await f.s.getThread(t.id);assert.equal(t.status,'resolved');assert.equal(t.lastReplyEventId,'unknown-send');assert.equal(attempts,1);
+ }finally{f.sql.close();}
+});
+
+test('age review cannot be bypassed by persona settings or direct AI testing',async()=>{
+ const f=await fixture();try{
+  await assert.rejects(()=>f.s.generateReply('I am 17, can we talk?','dm',[],'legacy-instagram',undefined,{uncensored:true}),/human review/);
+  assert.equal(f.generations.length,0);assert.equal(f.sends.length,0);
+ }finally{f.sql.close();}
+});
+
+test('a saved backup is never used without fallback approval',async()=>{
+ let requests=0;const f=await fixture({remoteHook:async url=>{if(url.endsWith('/chat/completions')){requests++;return Response.json({error:{message:'Unavailable'}},{status:503});}}});
+ try{
+  await f.post({kind:'provider',action:'add',provider:'groq',label:'Unapproved backup',model:'openai/gpt-oss-120b',key:'fixture-unapproved-key'});
+  const backup=(await f.s.providerConnections()).find(p=>p.id!=='legacy-groq');await f.post({kind:'provider',action:'test',id:backup.id});
+  await assert.rejects(()=>f.s.generateReply('hello','dm'),/temporarily unavailable/);assert.equal(requests,1);
+ }finally{f.sql.close();}
+});
 test('adaptive length saves and permits a useful explanation without changing strict short mode',async()=>{
  const answer='I meant we can keep chatting here. I am not arranging a meeting.';
  const f=await fixture({remoteHook:async(url,options)=>{
@@ -89,7 +123,7 @@ test('adaptive length saves and permits a useful explanation without changing st
 });
 test('a transient provider failure retries without duplicating the incoming message',async()=>{
  let calls=0;const f=await fixture({remoteHook:async url=>{if(url.endsWith('/chat/completions')&&calls++===0)return new Response('{}',{status:503});}});
- await f.event([messageEvent('retry')]);const first=await (await f.run()).json();assert.equal(first.retryQueued,true);assert.equal(f.sends.length,0);assert.equal(f.sql.prepare("SELECT status FROM jobs WHERE id='retry'").get().status,'pending');
+ await f.event([messageEvent('retry')]);const first=await (await f.run()).json();assert.equal(first.queue.pending,1);assert.equal(f.sends.length,0);assert.equal(f.sql.prepare("SELECT status FROM jobs WHERE id='retry'").get().status,'pending');
  f.sql.prepare("UPDATE jobs SET created=? WHERE id='retry'").run(Date.now()-1);await f.run();assert.equal(f.sends.length,1);assert.equal(f.sql.prepare("SELECT attempts FROM jobs WHERE id='retry'").get().attempts,2);assert.equal((await f.s.allThreads())[0].messages.filter(m=>m.role==='incoming').length,1);f.sql.close();
 });
 test('missing Instagram receipt leaves an uncertain delivery and cannot be retried automatically',async()=>{
@@ -108,7 +142,7 @@ test('parallel processing preserves order for messages in the same conversation'
  let release,entered;const blocked=new Promise(r=>release=r),generationEntered=new Promise(r=>entered=r);let first=true;
  const f=await fixture({remoteHook:async url=>{if(first&&url.endsWith('/chat/completions')){first=false;entered();await blocked;}}});
  const at=Date.now();await f.event([messageEvent('ordered-one',at),messageEvent('ordered-two',at)]);const running=f.run();await generationEntered;
- const second=await (await f.run()).json();assert.equal(second.processed,0);release();await running;await f.run();assert.equal(f.sends.length,2);const t=(await f.s.allThreads())[0];assert.equal(t.messages.filter(m=>m.role==='incoming').length,2);assert.equal(t.lastReplyEventId,'ordered-two');f.sql.close();
+ const second=await (await f.run()).json();assert.equal(second.processed,0);release();await running;await f.run();assert.equal(f.sends.length,1);const t=(await f.s.allThreads())[0];assert.equal(t.messages.filter(m=>m.role==='incoming').length,2);assert.deepEqual(Array.from(t.lastReplyEventIds),['ordered-one','ordered-two']);f.sql.close();
 });
 test('expired DMs do not spend a provider call or attempt a send',async()=>{
  const f=await fixture();await f.event([messageEvent('expired',Date.now()-25*3600000)]);await f.run();assert.equal(f.generations.length,0);assert.equal(f.sends.length,0);assert.equal(f.sql.prepare("SELECT status FROM jobs WHERE id='expired'").get().status,'failed');f.sql.close();
@@ -120,7 +154,7 @@ test('legacy replies without an event receipt are not sent again after recovery'
 });
 
 test('ten-second quiet period groups messages into one reply with receipts for every event',async()=>{
- const clock={now:Date.now()};const f=await fixture({clock});const s=await f.s.settings();await f.s.writeState('settings',{...s,replyDelaySeconds:10});
+ const clock={now:Date.now()};const f=await fixture({clock});const s=await f.s.settings();await f.s.writeState('settings',{...s,replyDelaySeconds:10,dmReplyDelaySeconds:10});
  await f.event([messageEvent('burst-one',clock.now)]);assert.equal((await (await f.run()).json()).processed,0);assert.equal(f.generations.length,0);
  clock.now+=5000;const second=messageEvent('burst-two',clock.now);second.messaging[0].message.text='And how are you?';await f.event([second]);
  clock.now+=5001;assert.equal((await (await f.run()).json()).processed,0);clock.now+=5000;
@@ -130,13 +164,13 @@ test('ten-second quiet period groups messages into one reply with receipts for e
 });
 test('message arriving during generation prevents an outdated reply and joins the next burst',async()=>{
  const clock={now:Date.now()};let release,entered;const blocked=new Promise(r=>release=r),started=new Promise(r=>entered=r);let first=true;
- const f=await fixture({clock,remoteHook:async url=>{if(first&&url.endsWith('/chat/completions')){first=false;entered();await blocked;}}});await f.s.writeState('settings',{...await f.s.settings(),replyDelaySeconds:10});
- await f.event([messageEvent('mid-generation-one',clock.now)]);clock.now+=10001;const pending=f.run();await started;const later=messageEvent('mid-generation-two',clock.now);later.messaging[0].message.text='Wait, another thing';await f.event([later]);release();assert.equal((await (await pending).json()).deferred,true);assert.equal(f.sends.length,0);assert.equal(f.sql.prepare("SELECT attempts FROM jobs WHERE id='mid-generation-one'").get().attempts,0);
+ const f=await fixture({clock,remoteHook:async url=>{if(first&&url.endsWith('/chat/completions')){first=false;entered();await blocked;}}});await f.s.writeState('settings',{...await f.s.settings(),replyDelaySeconds:10,dmReplyDelaySeconds:10});
+ await f.event([messageEvent('mid-generation-one',clock.now)]);clock.now+=10001;const pending=f.run();await started;const later=messageEvent('mid-generation-two',clock.now);later.messaging[0].message.text='Wait, another thing';await f.event([later]);release();assert.equal((await (await pending).json()).queue.pending,2);assert.equal(f.sends.length,0);assert.equal(f.sql.prepare("SELECT attempts FROM jobs WHERE id='mid-generation-one'").get().attempts,0);
  clock.now+=10001;await f.run();assert.equal(f.sends.length,1);assert.match(f.generations.at(-1).body.messages.at(-1).content,/Hello\nWait, another thing/);f.sql.close();
 });
 test('scheduled breaks preserve pending messages without provider calls and resume safely',async()=>{
  const clock={now:Date.now()};const f=await fixture({clock});await f.s.writeState('settings',{...await f.s.settings(),cycleEnabled:true,cycleStartedAt:clock.now-16*60000});
- await f.event([messageEvent('break-message',clock.now)]);assert.equal((await (await f.run()).json()).paused,true);assert.equal(f.generations.length,0);assert.equal(f.sql.prepare("SELECT status FROM jobs WHERE id='break-message'").get().status,'pending');
+ await f.event([messageEvent('break-message',clock.now)]);assert.equal((await (await f.run()).json()).processed,0);assert.equal(f.generations.length,0);assert.equal(f.sql.prepare("SELECT status FROM jobs WHERE id='break-message'").get().status,'pending');
  clock.now+=60*60000;await f.run();assert.equal(f.sends.length,1);f.sql.close();
 });
 test('messages expire individually even in an active thread and delivery IDs survive cleanup',async()=>{
@@ -152,7 +186,7 @@ test('deleting a conversation keeps webhook deduplication without retaining its 
 });
 test('a rewrite that still repeats a recent response is withheld instead of sent',async()=>{
  const f=await fixture({remoteHook:async url=>url.endsWith('/chat/completions')?Response.json({choices:[{message:{content:'Same thing 😄'}}]}):undefined});
- await f.event([messageEvent('repeat-first')]);await f.run();await f.event([messageEvent('repeat-second')]);const result=await (await f.run()).json();assert.equal(result.retryQueued,true);assert.equal(f.sends.length,1);f.sql.close();
+ await f.event([messageEvent('repeat-first')]);await f.run();await f.event([messageEvent('repeat-second')]);const result=await (await f.run()).json();assert.equal(result.queue.pending,1);assert.equal(f.sends.length,1);f.sql.close();
 });
 
 test('Android pairing is one-time, expiring and revocable, with no credential exports',async()=>{
@@ -160,7 +194,7 @@ test('Android pairing is one-time, expiring and revocable, with no credential ex
  const owner=(payload)=>new Request('https://nina.test/api/mobile-access',{method:'POST',headers:{'x-nina-client':'1',Origin:'https://nina.test'},body:JSON.stringify(payload)});
  const redeem=code=>pair.POST(new Request('https://nina.test/api/mobile/pair',{method:'POST',body:JSON.stringify({code,label:'Test phone'})}));
  const dispatch=(token,path,method='GET',payload={})=>mobile.POST(new Request('https://nina.test/api/mobile',{method:'POST',headers:{'x-nina-device':token},body:JSON.stringify({path,method,payload})}));
- assert.equal((await access.POST(new Request('https://nina.test/api/mobile-access',{method:'POST',body:'{"action":"create"}'}))).status,403);
+ assert.equal((await access.POST(new Request('https://nina.test/api/mobile-access',{method:'POST',body:'{"action":"create"}'}))).status,401);
  assert.equal((await dispatch('0'.repeat(64),'/api/workspace')).status,401);
  const first=await (await access.POST(owner({action:'create'}))).json();assert.match(first.code,/^NK-[a-f0-9]{64}$/);
  assert.ok(!JSON.stringify(f.sql.prepare('SELECT payload FROM workspace_state WHERE key=?').get('mobile_pairing')).includes(first.code));
@@ -189,7 +223,7 @@ test('both accounts share one API until quota causes a sticky fallback',async()=
 });
 test('all API quotas keep replies queued without exhausting safe job attempts',async()=>{
  const clock={now:Date.now()};const f=await fixture({clock,remoteHook:async url=>url.endsWith('/chat/completions')?Response.json({error:{message:'Daily quota reached'}},{status:429,headers:{'Retry-After':'3600'}}):undefined});
- await f.post({kind:'provider',action:'routing',shared:true,fallbackEnabled:true,order:['legacy-groq'],approvedIds:['legacy-groq']});await f.event([messageEvent('all-limited',clock.now)]);const result=await (await f.run()).json();assert.equal(result.retryQueued,true);const job=f.sql.prepare("SELECT status,attempts,created FROM jobs WHERE id='all-limited'").get();assert.equal(job.status,'pending');assert.equal(job.attempts,0);assert.ok(job.created>=clock.now+3600000);assert.equal(f.sends.length,0);f.sql.close();
+ await f.post({kind:'provider',action:'routing',shared:true,fallbackEnabled:true,order:['legacy-groq'],approvedIds:['legacy-groq']});await f.event([messageEvent('all-limited',clock.now)]);const result=await (await f.run()).json();assert.equal(result.queue.pending,1);const job=f.sql.prepare("SELECT status,attempts,created FROM jobs WHERE id='all-limited'").get();assert.equal(job.status,'pending');assert.equal(job.attempts,0);assert.ok(job.created>=clock.now+3600000);assert.equal(f.sends.length,0);f.sql.close();
 });
 test('bad credentials and app caps do not silently switch API providers',async()=>{
  const f=await fixture({remoteHook:async url=>url.endsWith('/chat/completions')?Response.json({error:{message:'Invalid key'}},{status:401}):undefined});

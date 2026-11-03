@@ -21,7 +21,8 @@ async function recoverStaleJobs(){
   for(const st of stale){
    try{
     const p=JSON.parse(st.payload);
-    p.status=p.draft?'review':'open';
+    p.status='uncertain';
+    p.flagged='Delivery uncertain · processing stopped before a receipt was saved';
     await db().prepare("UPDATE threads SET payload=? WHERE id=?").bind(JSON.stringify(p),st.id).run();
    }catch{}
   }
@@ -95,7 +96,7 @@ export async function processNextJob(){
      if(e?.threadId && e?.text){
       let t: Thread;
       try { t = await getThread(e.threadId); } catch {
-       t = { accountId: e.accountId || 'legacy-instagram', id: e.threadId, name: e.username, username: e.username, channel: e.channel, demo: false, status: 'open', takeover: false, ai: false, messages: [], draft: '', lastInbound: e.at || now, updated: e.at || now, version: 0, recipientId: e.recipientId };
+       t = { accountId: e.accountId || 'legacy-instagram', id: e.threadId, name: e.username, username: e.username, channel: e.channel, demo: false, status: 'open', takeover: false, ai: true, messages: [], draft: '', lastInbound: e.at || now, updated: e.at || now, version: 0, recipientId: e.recipientId };
       }
       if(!t.messages.some(m => m.role === 'incoming' && (m.eventId === candidate.id || (!m.eventId && m.at === e.at && m.text === e.text)))){
        t.messages.push({ role: 'incoming', eventId: candidate.id, text: e.text, at: e.at || now });
@@ -163,6 +164,13 @@ export async function processNextJob(){
   let t:Thread;try{t=await getThread(e.threadId);}catch(error){if(!(error instanceof AppError)||error.status!==404)throw error;t={accountId:e.accountId||'legacy-instagram',id:e.threadId,name:e.username,username:e.username,channel:e.channel,demo:false,status:'open',takeover:false,ai:true,messages:[],draft:'',lastInbound:e.at,updated:e.at,version:0,recipientId:e.recipientId,commentId:e.commentId,mediaId:e.mediaId,mediaType:e.mediaType};}
   if(e.mediaId)t.mediaId=e.mediaId;
   if(e.mediaType)t.mediaType=e.mediaType;
+  if(t.status==='sending'||t.status==='uncertain'){
+   for(const event of usable)if(!t.messages.some(m=>m.role==='incoming'&&m.eventId===event.id))t.messages.push({role:'incoming',eventId:event.id,text:event.text,at:event.at});
+   t.lastInbound=Math.max(t.lastInbound,e.at);await saveThread(t);await finish(ids,'failed');return {processed:group.length};
+  }
+  if(!t.lastReplyEventId&&!t.lastReplyEventIds?.length&&usable.some(event=>t.messages.some(m=>m.role==='incoming'&&m.eventId===event.id)&&t.messages.some(m=>m.role==='outgoing'&&m.at>=event.at))){
+   t.status='uncertain';t.flagged='Delivery uncertain · legacy reply has no event receipt';await saveThread(t);await finish(ids,'failed');return {processed:group.length};
+  }
   const fresh=usable.filter(e=>t.lastReplyEventId!==e.id&&!t.lastReplyEventIds?.includes(e.id));
   if(!fresh.length){await finish(ids,'done');return {processed:group.length};}
   for(const item of fresh)if(!t.messages.some(m=>m.role==='incoming'&&(m.eventId===item.id||(!m.eventId&&m.at===item.at&&m.text===item.text))))t.messages.push({role:'incoming',eventId:item.id,text:item.text,at:item.at});
@@ -171,7 +179,7 @@ export async function processNextJob(){
   }else{
    t.messages=t.messages.slice(-200);
   }
-  t.lastInbound=Math.max(t.lastInbound,e.at);t.draft='';if(t.status!=='sending'&&t.status!=='uncertain')t.status='open';
+  t.lastInbound=Math.max(t.lastInbound,e.at);t.draft='';t.status='open';
   const input=fresh.map(e=>e.text).join('\n').slice(-6000);t.flagged=reviewFlag(input)||undefined;if(t.flagged?.startsWith('Explicit message'))t.flagged=undefined;
   if(t.channel==='comment'){
    let dynamicMedia: any = null;
@@ -234,7 +242,7 @@ export async function processNextJob(){
     const isExplicitSnapRequest = /\b(snap|view once|once view|pic bhejo|photo bhejo|send pic|send photo|link bhejo|link send|dm link|exclusive pic|photoshoot pic|unlock|unlocked|claim|done|followed)\b/i.test(lower);
     const shouldTriggerSnap = isKeywordMatch || isExplicitSnapRequest || (isTargetReel && !kw);
 
-    if (shouldTriggerSnap && account?.enabled && account?.verified && !excluded.includes(String(e.recipientId)) && !excluded.includes(account.id+':'+e.recipientId) && t.status!=='sending' && t.status!=='uncertain' && !t.takeover) {
+    if (shouldTriggerSnap && account?.enabled && account?.verified && !excluded.includes(String(e.recipientId)) && !excluded.includes(account.id+':'+e.recipientId) && !t.takeover) {
       if (t.channel === 'dm' && Date.now() - t.lastInbound >= 86400000) {
         throw new AppError('The 24-hour DM reply window has closed.', 422);
       }
@@ -287,7 +295,7 @@ export async function processNextJob(){
   const accountAi=account?account.aiEnabled!==false:true;
   const channelAllowed=t.channel==='dm'?(s.dm&&accountDm):(s.comments&&accountComments);
   const win=channelAutomationWindow(s,t.channel,account,now);
-  const eligibleBase=account?.enabled&&accountAi&&account.verified&&!excluded.includes(String(e.recipientId))&&!excluded.includes(account.id+':'+e.recipientId)&&t.status!=='sending'&&t.status!=='uncertain'&&!t.takeover&&t.ai&&channelAllowed&&t.lastInbound<=e.at;
+  const eligibleBase=account?.enabled&&accountAi&&account.verified&&!excluded.includes(String(e.recipientId))&&!excluded.includes(account.id+':'+e.recipientId)&&!t.takeover&&t.ai&&channelAllowed&&t.lastInbound<=e.at;
   if(eligibleBase&&!win.active){
    const nextActive=win.nextChangeAt||(Date.now()+60000);
    await postpone(group,nextActive,true);
@@ -330,8 +338,13 @@ export async function processNextJob(){
       }
       const isUncensoredTone=t.channel==='dm'&&((account?.tone||s.tone)==='erotic'||(account?.tone||s.tone)==='spicy');
       draft=await generateReply(input,t.channel,history,t.accountId,undefined,{uncensored:isUncensoredTone,postContext:t.postContext,mediaType:t.mediaType,recipientUsername:t.username});
+      const newer=(await db().prepare("SELECT payload FROM jobs WHERE thread_id=? AND status='pending'").bind(t.id).all<{payload:string}>()).results;
+      if(newer.length){
+       const latest=Math.max(Date.now(),...newer.map(row=>{try{return Number(JSON.parse(row.payload).at)||0;}catch{return 0;}}));
+       await postpone(group,latest+waitMs,true);return {processed:group.length,deferred:true};
+      }
       t.draft=draft;
-    if(s.approval){
+    if((await settings()).approval){
      t.status='review';
      await saveThread(t);
      t.version=(t.version||0)+1;

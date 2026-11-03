@@ -16,11 +16,7 @@ export const SESSION_COOKIE_NAME = 'wa_session';
 export const OWNER_COOKIE_NAME = 'nina_owner_session';
 
 export function getSigningKey(): string {
-  const key = process.env.SESSION_SIGNING_KEY || '';
-  if (key.length < 32) {
-    throw new Error('SESSION_SIGNING_KEY not configured or too short (min 32 chars)');
-  }
-  return key;
+  return sessionSigningSecret();
 }
 
 export async function hashPassword(password: string, salt: string): Promise<string> {
@@ -104,3 +100,4 @@ export async function verifySessionSignature(token: string): Promise<SessionPayl
     return null;
   }
 }
+import {sessionSigningSecret} from '../../shared/session-config';

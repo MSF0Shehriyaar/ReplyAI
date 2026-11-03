@@ -1,3 +1,4 @@
+import {matchingReplyRules} from './reply-rules';
 import { claimThreadJobs, releaseThread } from './queue-ownership';
 import {missingBusinessProfile} from './business-profile';
 import {confirmCatalogCheckout,isCatalogConfirmation} from './catalog-checkout';
@@ -17,7 +18,7 @@ import {
   getOrCreateCustomer,
   saveCustomerProfile,
 } from './server';
-import { analyzeSentiment, detectIntent, autoTag, isBusinessHours, reviewFlag } from './reply-style';
+import { analyzeSentiment, autoTag, isBusinessHours, reviewFlag } from './reply-style';
 import type { WAThread, WAMessage, WASettings, AutoReplyRule, CustomerProfile, WAOrder } from './model';
 
 type Job = {
@@ -28,47 +29,6 @@ type Job = {
   created: number;
   tenant_id?: string;
 };
-
-// ── Auto-Reply Rule Matching ────────────────────────────────────────────
-
-function matchAutoReplyRule(
-  rules: AutoReplyRule[],
-  text: string,
-  channel: 'personal' | 'group',
-  isFirstMessage: boolean,
-  withinHours: boolean
-): AutoReplyRule | null {
-  const sorted = rules.filter((r) => r.enabled).sort((a, b) => b.priority - a.priority);
-
-  for (const rule of sorted) {
-    if (rule.channel !== 'all' && rule.channel !== channel) continue;
-
-    switch (rule.triggerType) {
-      case 'first_message':
-        if (isFirstMessage) return rule;
-        break;
-      case 'time':
-        if (rule.triggerValue === 'outside_hours' && !withinHours) return rule;
-        break;
-      case 'keyword': {
-        const keywords = rule.triggerValue.split(',').map((k) => k.trim().toLowerCase());
-        if (keywords.some((k) => text.toLowerCase().includes(k))) return rule;
-        break;
-      }
-      case 'regex':
-        try {
-          if (new RegExp(rule.triggerValue, 'i').test(text)) return rule;
-        } catch {}
-        break;
-      case 'intent': {
-        const intent = detectIntent(text);
-        if (intent === rule.triggerValue) return rule;
-        break;
-      }
-    }
-  }
-  return null;
-}
 
 async function reserveRule(rule:AutoReplyRule,tenantId:string,threadId:string) {
   const now=Date.now(),day=new Date(now).toISOString().slice(0,10);
@@ -337,7 +297,7 @@ export async function processThreadJobs(threadId: string, tenantId: string = 'bi
     // Check auto-reply rules
     if(thread.flagged?.startsWith('Delivery uncertain'))throw new AppError('Verify the previous WhatsApp delivery before retrying.',409);
     const withinHours = isBusinessHours(s);
-    const autoReply = matchAutoReplyRule(
+    const candidates = matchingReplyRules(
       s.autoReplyRules,
       compositeText,
       thread.channel,
@@ -345,7 +305,8 @@ export async function processThreadJobs(threadId: string, tenantId: string = 'bi
       withinHours
     );
 
-    if (autoReply&&await reserveRule(autoReply,tenantId,threadId)) {
+    for (const autoReply of candidates) {
+      if(!await reserveRule(autoReply,tenantId,threadId))continue;
       const replyText =
         autoReply.response ||
         (autoReply.triggerType === 'first_message' ? s.welcomeMessage : '') ||

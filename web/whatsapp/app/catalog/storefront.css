@@ -4,3 +4,6 @@
 @media(min-width:1100px){.commerce-grid{grid-template-columns:repeat(4,minmax(0,1fr))}.commerce-hero-art{height:440px}.commerce-hero-art img{height:400px}.commerce-header{padding-top:24px;padding-bottom:24px}.commerce-collection{padding-bottom:70px}}
 @media(prefers-reduced-motion:reduce){.commerce{scroll-behavior:auto}.commerce *{transition:none!important}}
 .commerce-add{min-height:44px}.commerce-categories button{min-height:44px}.commerce-close{width:44px;height:44px}.commerce-quantity button{height:40px;width:40px}
+.commerce-inquiry{position:fixed;right:20px;bottom:20px;z-index:8;display:flex;align-items:center;gap:10px;max-width:calc(100% - 40px);min-height:48px;padding:12px 18px;background:#27473c;color:#fff;border:1px solid #d5ddd6;border-radius:8px;text-decoration:none;font:500 13px/1.5 system-ui;box-shadow:0 4px 20px #182f2420}
+@media(max-width:700px){.commerce-inquiry{bottom:80px;right:14px;max-width:calc(100% - 28px);font-size:12px}}
+.commerce-product-inquiry{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:48px;padding:12px 0;margin:12px 0;color:#27473c;text-decoration:underline;text-underline-offset:4px;font-size:13px}

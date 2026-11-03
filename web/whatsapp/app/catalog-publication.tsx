@@ -1,15 +1,17 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect,useState } from 'react';
 import { Globe, Lock, CheckCircle2, ExternalLink, Save, Loader2, Sparkles } from 'lucide-react';
 import type { CatalogPublication } from '../lib/model';
 
 export default function PublicationSettings({
   publication,
   onSave,
+  catalogBase='/business/catalog',
 }: {
   publication?: CatalogPublication;
   onSave: (slug: string, published: boolean) => Promise<boolean>;
+  catalogBase?:string;
 }) {
   const [slug, setSlug] = useState(publication?.slug || '');
   const [published, setPublished] = useState(!!publication?.published);
@@ -19,23 +21,11 @@ export default function PublicationSettings({
 
   const formattedSlug = slug.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-');
   
-  // Resolve current origin safely (never force production domain on localhost/demo)
-  const isDemo = typeof window !== 'undefined' && (window.location.port === '4173' || window.location.pathname.startsWith('/catalog'));
-  const isLocal = typeof window !== 'undefined' && (
-    window.location.hostname === 'localhost' ||
-    window.location.hostname === '127.0.0.1' ||
-    window.location.port === '4173' ||
-    window.location.port === '3000'
-  );
-  const origin = typeof window !== 'undefined'
-    ? window.location.origin
-    : (process.env.NODE_ENV === 'production' ? 'https://automation.ninakurainservices.in' : 'http://localhost:3000');
-  
-  const pathPrefix = isDemo ? '/catalog/' : '/business/catalog/';
+  const [origin,setOrigin]=useState('');
+  useEffect(()=>setOrigin(window.location.origin),[]);
+  const pathPrefix=catalogBase.replace(/\/$/,'')+'/';
   const fullLiveUrl = `${origin}${pathPrefix}${formattedSlug || 'your-chosen-slug'}`;
-  const liveUrl = (isLocal || isDemo)
-    ? (slug ? `${origin}${pathPrefix}${formattedSlug}` : fullLiveUrl)
-    : (publication?.url?.startsWith('http') ? publication.url : (slug ? `${origin}${pathPrefix}${formattedSlug}` : ''));
+  const liveUrl=publication?.slug===formattedSlug&&publication.url?publication.url:(slug?`${origin}${pathPrefix}${formattedSlug}`:'');
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -111,7 +101,7 @@ export default function PublicationSettings({
               value={slug}
               maxLength={64}
               placeholder="e.g. titan-watches"
-              pattern="[a-z0-9][-a-z0-9]{1,62}[a-z0-9]"
+              pattern="[a-z0-9](?:[a-z0-9]|-){1,62}[a-z0-9]"
               onChange={event => setSlug(event.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
               style={styles.slugInput}
             />

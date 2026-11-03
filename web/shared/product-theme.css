@@ -1,4 +1,28 @@
 /* Shared visual language. Channel routing, sessions and data stay separate. */
+/* Mobile defaults are shared by both channels and the local application. */
+:root{--workspace-font:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;--workspace-radius:14px;}
+html{scroll-padding-top:20px;}
+.delivery-review{padding:16px 20px;background:#fff5e7;border-bottom:1px solid #e3cba7;color:#62481f;font-size:13px;line-height:1.7;}
+.delivery-review p{margin:6px 0 12px;}
+.delivery-review>div{display:flex;gap:8px;flex-wrap:wrap;}
+.delivery-review .button{white-space:normal;}
+:is(button,a,input,select,textarea):focus-visible{outline:3px solid var(--workspace-accent);outline-offset:3px;}
+:is(.wa-dashboard,.app-main,.wa-settings-page,.nina-admin) :is(h1,h2,h3,p,button){overflow-wrap:anywhere;}
+@media(max-width:767px){
+  :is(.wa-dashboard,.wa-settings-page,.wa-access,.owner-access,.app-main,.nina-admin) :is(input:not([type=checkbox]):not([type=radio]),select,textarea){font-size:16px!important;max-width:100%;}
+  :is(.wa-dashboard,.app-main,.nina-admin) button{min-height:44px;}
+  .wa-settings-page{padding:20px 12px 32px;}
+  .wa-settings-card{padding:18px 14px;}
+  .wa-settings-toggle{align-items:center;min-height:64px;}
+  .wa-settings-save{position:sticky;bottom:0;z-index:4;padding:14px 12px calc(14px + env(safe-area-inset-bottom));margin:0 -12px;background:var(--workspace-surface);border-top:1px solid var(--workspace-line);}
+  .wa-settings-save button{white-space:normal;}
+  .wa-ai-status>div{min-width:0!important;width:100%;}
+  .wa-setup-readiness>div{min-width:0!important;}
+  .app-main .page-title{align-items:flex-start;flex-wrap:wrap;gap:14px;}
+  .app-main .page-title>div{min-width:0;max-width:100%;}
+  .app-main .button{white-space:normal;}
+  [role=dialog]{max-width:calc(100vw - 24px);max-height:calc(100dvh - 24px);overflow-y:auto;overscroll-behavior:contain;}
+}
 :root{color-scheme:light;--workspace-canvas:#f7f7fb;--workspace-surface:#fff;--workspace-ink:#292538;--workspace-muted:#635e73;--workspace-line:#e2dfeb;--workspace-accent:#6550c8;--workspace-soft:#f0edfa;--workspace-shadow:0 4px 20px #29253806;--brand:#6550c8;--brand-soft:#f0edfa;--text-primary:#292538;--text-muted:#635e73;--text-faint:#716c80;--bg-deep:#f7f7fb;--bg-base:#f7f7fb;--bg-elevated:#fff;--bg-surface:#fff;}
 html,body{font-family:var(--workspace-font);background:var(--workspace-canvas);color:var(--workspace-ink);}
 button,a,input,select,textarea{transition:background-color .15s,border-color .15s,color .15s,opacity .15s;scroll-behavior:auto;}

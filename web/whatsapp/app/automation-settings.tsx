@@ -9,6 +9,7 @@ export default function AutomationSettings({settings,onSave,onTest}:{settings:WA
   const [examples,setExamples]=useState(()=>JSON.stringify(settings.examples,null,2));
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
+  const [saved,setSaved]=useState('');
   const [question,setQuestion]=useState('');
   const [answer,setAnswer]=useState('');
   const [testing,setTesting]=useState(false);
@@ -17,10 +18,10 @@ export default function AutomationSettings({settings,onSave,onTest}:{settings:WA
     setForm(previous=>({...previous,approval:true,personalChats:true,groupChats:false,tone:'friendly',language:'auto',length:2,emoji:0,playfulness:0,humanDelay:false,typingIndicator:false,personalReplyDelaySeconds:0,groupReplyDelaySeconds:0,dailyLimit:100,maxRetries:3,autoTagEnabled:true,sentimentAnalysisEnabled:true}));
   }
   async function submit(event:FormEvent) {
-    event.preventDefault();if(busy)return;setError('');
-    let parsed;try{parsed=JSON.parse(examples);if(!Array.isArray(parsed)||parsed.some(e=>typeof e.incoming!=='string'||typeof e.reply!=='string'))throw Error();}catch{setError('Examples must be a JSON array of incoming and reply text pairs.');return;}
+    event.preventDefault();if(busy)return;setError('');setSaved('');
+    let parsed;try{parsed=JSON.parse(examples);if(!Array.isArray(parsed)||parsed.some(e=>!e||typeof e.incoming!=='string'||typeof e.reply!=='string'))throw Error();}catch{setError('Examples must be a JSON array of incoming and reply text pairs.');return;}
     setBusy(true);
-    try{if(!await onSave({...form,examples:parsed}))setError('Settings were not saved. Please retry.');}catch{setError('Settings were not saved. Please retry.');}finally{setBusy(false);}
+    try{if(!await onSave({...form,examples:parsed}))setError('Settings were not saved. Please retry.');else setSaved(form.businessName+' settings saved.');}catch{setError('Settings were not saved. Please retry.');}finally{setBusy(false);}
   }
   function updateRule(id:string,patch:Partial<AutoReplyRule>) {field('autoReplyRules',form.autoReplyRules.map(r=>r.id===id?{...r,...patch}:r));}
   const toggles=[
@@ -55,14 +56,16 @@ export default function AutomationSettings({settings,onSave,onTest}:{settings:WA
       </div></fieldset>
       <fieldset className="wa-settings-card" disabled={busy}><legend>Reply rules</legend><p>Rules use your saved response before AI generation and follow approval and chat permissions.</p>{form.autoReplyRules.map(rule=><div className="wa-settings-rule" key={rule.id}><header><strong>{rule.name||'New reply rule'}</strong><button type="button" aria-label={'Delete '+rule.name} onClick={()=>field('autoReplyRules',form.autoReplyRules.filter(r=>r.id!==rule.id))}><Trash2 size={16}/></button></header><div className="wa-settings-fields">
         <label><span>Rule name</span><input required value={rule.name} onChange={e=>updateRule(rule.id,{name:e.target.value})}/></label>
-        <label><span>Trigger</span><select value={rule.triggerType} onChange={e=>updateRule(rule.id,{triggerType:e.target.value as AutoReplyRule['triggerType'],triggerValue:e.target.value==='time'?'outside_hours':''})}><option value="keyword">Contains a keyword</option><option value="first_message">First customer message</option><option value="time">Outside business hours</option><option value="intent">Customer intent</option></select></label>
+        <label><span>Trigger</span><select value={rule.triggerType} onChange={e=>updateRule(rule.id,{triggerType:e.target.value as AutoReplyRule['triggerType'],triggerValue:e.target.value==='time'?'outside_hours':e.target.value==='intent'?'general':''})}><option value="keyword">Contains a keyword</option><option value="first_message">First customer message</option><option value="time">Outside business hours</option><option value="intent">Customer intent</option></select></label>
         {rule.triggerType==='keyword'&&<label><span>Keywords, separated by commas</span><input required value={rule.triggerValue} onChange={e=>updateRule(rule.id,{triggerValue:e.target.value})}/></label>}
         {rule.triggerType==='intent'&&<label><span>Intent</span><select value={rule.triggerValue} onChange={e=>updateRule(rule.id,{triggerValue:e.target.value})}>{['general','catalog','order_inquiry','pricing','support','complaint','greeting','refund_return','discount_inquiry'].map(v=><option key={v}>{v}</option>)}</select></label>}
         <label><span>Conversations</span><select value={rule.channel} onChange={e=>updateRule(rule.id,{channel:e.target.value as AutoReplyRule['channel']})}><option value="all">All allowed chats</option><option value="personal">Direct only</option><option value="group">Groups only</option></select></label>
+        <label><span>Priority</span><input type="number" min={0} max={1000} value={rule.priority} onChange={e=>updateRule(rule.id,{priority:Number(e.target.value)})}/><small>Higher priority rules are tried first.</small></label>
         <label><span>Cooldown (minutes)</span><input type="number" min={0} max={10080} value={rule.cooldownMinutes} onChange={e=>updateRule(rule.id,{cooldownMinutes:Number(e.target.value)})}/></label>
         <label><span>Maximum uses per UTC day</span><input type="number" min={1} max={10000} value={rule.maxUsesPerDay} onChange={e=>updateRule(rule.id,{maxUsesPerDay:Number(e.target.value)})}/></label>
         <label className="wa-settings-wide"><span>Response</span><textarea rows={3} maxLength={4000} value={rule.response} onChange={e=>updateRule(rule.id,{response:e.target.value})}/></label>
       </div><label className="wa-settings-toggle"><span>Rule enabled</span><input type="checkbox" checked={rule.enabled} onChange={e=>updateRule(rule.id,{enabled:e.target.checked})}/></label></div>)}<button type="button" className="wa-settings-action" onClick={()=>field('autoReplyRules',[...form.autoReplyRules,{id:crypto.randomUUID(),name:'New rule',enabled:false,triggerType:'keyword',triggerValue:'',response:'',priority:1,channel:'all',cooldownMinutes:30,maxUsesPerDay:100,usesToday:0}])}><Plus size={16}/>Add reply rule</button></fieldset>
+      {saved&&<p role="status">{saved}</p>}
       {error&&<div className="wa-settings-error" role="alert">{error}</div>}
       <footer className="wa-settings-save"><p>Recommended settings are a starting point. Save to apply changes.</p><button disabled={busy} type="submit">{busy?'Saving '+form.businessName+'…':'Save '+form.businessName+' settings'}</button></footer>
     </form>

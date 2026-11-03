@@ -205,7 +205,7 @@ export default function DeviceConnection({
             <span style={styles.cardEyebrow}>DEVICE PAIRING SETUP</span>
             <h2 style={styles.cardTitle}>Link your WhatsApp Number</h2>
             <p style={styles.cardDesc}>
-              Connect the WhatsApp number your customers reach you on. Messages and orders will sync automatically into your Nina Control Room and Boutique Storefront.
+              Connect the WhatsApp number your customers reach you on. Messages and orders appear in your business workspace. Your published catalog stays up to date with your saved products.
             </p>
 
             <div className="wa-device-features" style={styles.featuresGrid}>

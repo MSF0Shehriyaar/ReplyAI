@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { readState, writeState, db, audit, isAllowedOrigin } from '@/lib/server';
+import {sessionSigningSecret,SessionConfigurationError} from '../../../../shared/session-config';
 
 
 const SESSION_COOKIE_NAME = 'nina_owner_session';
@@ -40,11 +41,9 @@ async function hashString(value: string, salt: string): Promise<string> {
 }
 
 async function signToken(payload: string): Promise<string> {
-  const SECRET_SIGN_KEY=process.env.SESSION_SIGNING_KEY || '';
-  if (SECRET_SIGN_KEY.length < 32) throw new Error('Session signing is not configured.');
+  const SECRET_SIGN_KEY=sessionSigningSecret();
   const data = { ...JSON.parse(payload), jti: crypto.randomUUID() };
   payload = JSON.stringify(data);
-  await writeState('owner_session:' + data.jti, { user: data.user, expiresAt: data.exp,createdAt:data.iat||Date.now(),lastSeenAt:Date.now() });
   const enc = new TextEncoder();
   const key = await crypto.subtle.importKey(
     'raw',
@@ -55,6 +54,7 @@ async function signToken(payload: string): Promise<string> {
   );
   const sig = await crypto.subtle.sign('HMAC', key, enc.encode(payload));
   const sigHex = Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, '0')).join('');
+  await writeState('owner_session:' + data.jti, { user: data.user, expiresAt: data.exp,createdAt:data.iat||Date.now(),lastSeenAt:Date.now() });
   return `${btoa(payload)}.${sigHex}`;
 }
 
@@ -115,9 +115,13 @@ export async function POST(req: NextRequest) {
     }
     const raw = await req.text();
     if (raw.length > 8192) return NextResponse.json({ error: 'Request too large.' }, { status: 413 });
-    const body: any = JSON.parse(raw);
+    let body:any;
+    try{body=JSON.parse(raw);}catch{return NextResponse.json({error:'Send a valid JSON sign-in request.'},{status:400,headers:{'Cache-Control':'no-store'}});}
+    if(!body||typeof body!=='object'||Array.isArray(body))return NextResponse.json({error:'Invalid sign-in request.'},{status:400});
 
     const action = String(body?.action || 'login').trim();
+    if(!['login','set-pin','signup'].includes(action))return NextResponse.json({error:'Unknown authentication action.'},{status:400});
+    if(action==='login')sessionSigningSecret();
     let creds = await readState<OwnerCredentials | null>('owner_credentials', null);
 
     // ACTION: SET / CHANGE PIN FROM DASHBOARD
@@ -209,18 +213,18 @@ export async function POST(req: NextRequest) {
     }
     await writeState(bucket,{count:0,until:0});
     if (creds?.pin) { delete creds.pin; await writeState('owner_credentials',creds); }
-    await audit('Owner login','Owner signed in');
     // Create session (30 days validity)
     const token = await signToken(JSON.stringify({
       user: creds?.username || 'owner',
       iat: now,
       exp: now + 30 * 24 * 60 * 60 * 1000
     }));
+    await audit('Owner login','Owner signed in');
 
     const res = NextResponse.json({
       ok: true,
       user: { userId: 'owner', displayName: creds?.username || 'Workspace Owner' }
-    });
+    },{headers:{'Cache-Control':'no-store','Pragma':'no-cache'}});
 
     res.cookies.set(SESSION_COOKIE_NAME, token, {
       httpOnly: true,
@@ -232,8 +236,9 @@ export async function POST(req: NextRequest) {
 
     return res;
   } catch (err: any) {
-    console.error('[auth] POST error:', err);
-    return NextResponse.json({ error: err?.message || 'Authentication failed' }, { status: 400 });
+    if(err instanceof SessionConfigurationError){console.error('[auth] AUTH_CONFIGURATION_UNAVAILABLE: configure SESSION_SIGNING_KEY (at least 32 random characters) in the service runtime.');return NextResponse.json({error:err.message,code:err.code},{status:503,headers:{'Cache-Control':'no-store'}});}
+    console.error('[auth] Authentication service failed.');
+    return NextResponse.json({ error:'Authentication is temporarily unavailable. Please try again shortly.',code:'AUTH_SERVICE_UNAVAILABLE' }, { status:503,headers:{'Cache-Control':'no-store'} });
   }
 }
 

@@ -8,6 +8,6 @@ export type AdminSnapshot={
   daily:{day:string;calls:number;tokens:number;sent:number;received:number}[];logins:{day:string;count:number}[];
   providers:{id:string;label:string;provider:string;model:string;verified:boolean;cooldownUntil:number|null}[];
   queue:Record<string,number>;totals:{users:number;sessions:number;activities:number;activeSessions:number;recentlyActiveUsers:number;loginsToday:number;registrationsToday:number};
-  health:{database:string;uptimeSeconds:number;providerFailures:{providerId:string;at:number}[]};
+  health:{worker:{state:string;startedAt:number|null;lastStartedAt:number|null;lastCompletedAt:number|null;lastFailureAt:number|null};queueIssues:{id:string;tenantId:string;businessName:string;threadId:string;status:string;attempts:number;availableAt:number}[];database:string;uptimeSeconds:number;providerFailures:{providerId:string;at:number}[]};
   pagination:{pageSize:number;usersPage:number;sessionsPage:number;activityPage:number};dailyTracking:string;
 };

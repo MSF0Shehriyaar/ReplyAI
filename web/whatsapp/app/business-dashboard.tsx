@@ -54,8 +54,8 @@ const navigationIcons:Record<string,React.ElementType>={inbox:MessageSquare,orde
 // ── Main Command Center ─────────────────────────────────────────────────
 
 type DashboardTab='inbox'|'orders'|'catalog'|'business'|'brain'|'analytics'|'connect';
-type DashboardProps={onSessionExpired:()=>void;identity:{businessName:string;userName:string};apiBase?:string;catalogBase?:string;tenantId?:string;requireProfile?:boolean;onExit?:()=>void;initialTab?:DashboardTab};
-export default function BusinessDashboard({onSessionExpired,identity,apiBase='/business/api',catalogBase='/business/catalog',tenantId,requireProfile=true,onExit,initialTab='inbox'}:DashboardProps) {
+type DashboardProps={onSessionExpired:()=>void;identity:{businessName:string;userName:string};apiBase?:string;catalogBase?:string;tenantId?:string;requireProfile?:boolean;onExit?:()=>void;initialTab?:DashboardTab;aiStatus?:{heading:string;description:string}};
+export default function BusinessDashboard({onSessionExpired,identity,apiBase='/business/api',catalogBase='/business/catalog',tenantId,requireProfile=true,onExit,initialTab='inbox',aiStatus}:DashboardProps) {
   const [workspace, setWorkspace] = useState<WAWorkspace>(initialWAWorkspace);
   const [activeTab, setActiveTab] = useState<DashboardTab>(initialTab);
   const [selectedThread, setSelectedThread] = useState<WAThread | null>(null);
@@ -379,22 +379,22 @@ export default function BusinessDashboard({onSessionExpired,identity,apiBase='/b
       >
         <div style={{ flex: '1 1 260px', minWidth: 240 }}>
           <strong style={{ fontSize: 13.5, fontWeight: 700, color: '#1e293b' }}>
-            {!currentSettings.enabled
+            {aiStatus?.heading || (!currentSettings.enabled
               ? 'Automatic replies paused'
               : !workspace.connections.aiVerified
               ? 'Administrator AI setup required'
               : currentSettings.approval
               ? 'AI drafts require approval'
-              : 'Automatic replies enabled'}
+              : 'Automatic replies enabled')}
           </strong>
           <p style={{ fontSize: 12.5, lineHeight: 1.5, margin: '3px 0 0', color: '#64748b' }}>
-            {!currentSettings.enabled
+            {aiStatus?.description || (!currentSettings.enabled
               ? 'Enable replies in AI settings when your business is ready.'
               : !workspace.connections.aiVerified
               ? 'Your AI service is unavailable. Contact support.'
               : currentSettings.approval
               ? 'Review and send generated drafts from your inbox.'
-              : 'Replies use the administrator’s shared AI service and your business catalog.'}
+              : 'Replies use the administrator’s shared AI service and your business catalog.')}
             {!workspace.connections.whatsappVerified ? ' Connect WhatsApp to receive and send messages.' : ''}
           </p>
         </div>
@@ -468,7 +468,7 @@ export default function BusinessDashboard({onSessionExpired,identity,apiBase='/b
           />
         )}
         {activeTab === 'catalog' && (
-          <div><PublicationSettings key={(workspace.activeAccountId||'')+workspace.catalogPublication?.slug+workspace.catalogPublication?.published} publication={workspace.catalogPublication?{...workspace.catalogPublication,url:catalogBase+'/'+encodeURIComponent(workspace.catalogPublication.slug)}:undefined} onSave={(slug,published)=>doAction('save-catalog-publication',{slug,published})}/><CatalogView key={workspace.activeAccountId}
+          <div><PublicationSettings catalogBase={catalogBase} key={(workspace.activeAccountId||'')+workspace.catalogPublication?.slug+workspace.catalogPublication?.published} publication={workspace.catalogPublication?{...workspace.catalogPublication,url:catalogBase+'/'+encodeURIComponent(workspace.catalogPublication.slug)}:undefined} onSave={(slug,published)=>doAction('save-catalog-publication',{slug,published})}/><CatalogView key={workspace.activeAccountId}
             catalog={currentSettings.catalog}
             categories={currentSettings.categories}
             onSave={(newCat,categories) => doAction('save-catalog', {catalog:newCat,categories})}
@@ -1357,7 +1357,7 @@ function OrdersAndMapView({
       >
         {/* Left: Embedded Google Map */}
         <div style={{ position: 'relative', borderRadius: 10, overflow: 'hidden', minHeight: 280, border: '1px solid rgba(24,35,52,0.12)' }}>
-          <iframe title="Delivery address map"
+          {selectedOrder && mapQuery(selectedOrder.deliveryLocation) ? <iframe title="Delivery address map"
             width="100%"
             height="100%"
             frameBorder="0"
@@ -1367,7 +1367,8 @@ function OrdersAndMapView({
             )}&t=&z=16&ie=UTF8&iwloc=&output=embed`}
             allowFullScreen
             loading="lazy"
-          />
+            referrerPolicy="no-referrer"
+          /> : <div style={{display:'grid',placeContent:'center',minHeight:280,padding:24,textAlign:'center',color:'var(--workspace-text-secondary)'}}><strong>No delivery address selected</strong><p>Select an order with a delivery address to view its map.</p></div>}
           <div
             style={{
               position: 'absolute',
@@ -1383,7 +1384,7 @@ function OrdersAndMapView({
               border: '1px solid rgba(16, 185, 129, 0.3)',
             }}
           >
-             Live GPS Radar · {selectedOrder ? selectedOrder.id : 'Mysore Central'}
+             Delivery address map{selectedOrder ? ' · '+selectedOrder.id : ''}
           </div>
         </div>
 
